@@ -1,0 +1,53 @@
+{
+  "name": "@kripamishra/mastra-pii",
+  "version": "0.1.0-alpha.1",
+  "description": "Layered PII redaction processor for Mastra",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepack": "npm run check"
+  },
+  "dependencies": {
+    "@openredaction/core": "1.1.5"
+  },
+  "peerDependencies": {
+    "@mastra/core": ">=1.57.0 <2"
+  },
+  "peerDependenciesMeta": {
+    "@mastra/core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@mastra/core": "1.57.0",
+    "@types/node": "^22.15.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
