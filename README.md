@@ -76,6 +76,19 @@ same layer option is accepted by `redactText(text, options?)`.
   should still be reviewed by callers; no detector can guarantee detection of
   every arbitrary identifier or name.
 
+## Test UI
+
+The Vercel-ready test console lives in `test-ui/`. It calls the Node function at
+`/api/redact`, which builds the package and exposes `id`, `layers`, `entities`,
+and bounded custom regex patterns as tunable controls.
+
+```sh
+npx vercel dev
+```
+
+Deploy the repository root to Vercel. `vercel.json` runs `npm run build`, serves
+`test-ui/`, and keeps the package worker available to the Node 22 function.
+
 ## Development
 
 ```sh

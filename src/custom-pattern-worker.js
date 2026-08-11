@@ -14,7 +14,14 @@ parentPort?.once('message', ({ text, patterns }) => {
       let match;
       while ((match = regex.exec(text)) !== null) {
         const length = match[0].length;
-        if (length === 0 || spans.length >= MAX_MATCHES) throw new Error('unsafe match');
+        if (length === 0) {
+          parentPort?.postMessage({ ok: false, reason: 'zero-width', patternIndex });
+          return;
+        }
+        if (spans.length >= MAX_MATCHES) {
+          parentPort?.postMessage({ ok: false, reason: 'too-many-matches' });
+          return;
+        }
         spans.push({ patternIndex, start: match.index, end: match.index + length });
       }
     }

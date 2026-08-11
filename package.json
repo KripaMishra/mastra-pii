@@ -27,8 +27,8 @@
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc -p tsconfig.json && cp src/custom-pattern-worker.js dist/custom-pattern-worker.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "check": "npm run typecheck && npm test && npm run build",
+    "test": "npm run build && vitest run",
+    "check": "npm run typecheck && npm test",
     "verify:package": "node scripts/verify-package.mjs",
     "prepack": "npm run check"
   },
