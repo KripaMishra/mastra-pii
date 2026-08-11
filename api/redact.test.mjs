@@ -1,4 +1,6 @@
 import { Readable } from 'node:stream';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import handler from './redact.mjs';
 
@@ -128,6 +130,14 @@ describe('redaction API contract', () => {
     });
     expect(result.statusCode).toBe(200);
     expect(result.payload.output).toBe('café');
+  });
+
+  it('resolves the custom-pattern worker next to the handler for the Vercel includeFiles layout', async () => {
+    const workerPath = fileURLToPath(new URL('../dist/custom-pattern-worker.js', import.meta.url));
+    expect(existsSync(workerPath)).toBe(true);
+    const result = await invoke({ text: 'CANARY-1', config: { patterns: [{ name: 'canary', regex: 'CANARY-[0-9]+' }] } });
+    expect(result.statusCode).toBe(200);
+    expect(result.payload.output).toContain('[CUSTOM_1]');
   });
 
   it('does not advertise wildcard CORS for the same-origin console', async () => {
