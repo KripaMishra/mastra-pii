@@ -30,10 +30,14 @@ const agent = new Agent({ inputProcessors: [pii.processor] });
 ```
 
 `redactText()` is asynchronous because the detector API is asynchronous. It
-performs no network or model calls. The returned `processor` implements
-Mastra's `Processor` interface and copies messages/content parts rather than
-mutating caller-owned objects. Text, reasoning, and reasoning-detail text are
-redacted; non-text parts are preserved.
+performs no network or model calls. The returned processor sanitizes both the
+initial Mastra input and the final model prompt before every LLM call, including
+tool continuations. It copies caller-owned values, redacts known tool
+arguments/results/errors/raw input/approval/title fields recursively, and fails
+the containing message closed for malformed or unsupported structured data.
+Provider options are recursively sanitized as bounded JSON. Only in-memory
+`Uint8Array` and `ArrayBuffer` media is copied as opaque binary data; string,
+base64, URL/data-URL, and textual tool-output media are rejected fail closed.
 
 ### Entities
 
@@ -46,10 +50,12 @@ pattern when those fields must be covered.
 
 Custom patterns have a `name` (or dependency-compatible `type`), `RegExp`,
 optional `entity`, and optional non-negative `priority`. They are part of the
-`deterministic` layer. `layers` accepts `deterministic`; requesting `ner` or
-`model` is rejected. The same layer option is accepted by
-`redactText(text, options?)`. Overlapping spans are merged deterministically and
-placeholders are applied once from right to left.
+`deterministic` layer. Each pattern runs against the original text in a
+terminable local worker; timeout or worker failure returns
+`[REDACTION_FAILED]`. Higher priority wins an overlap, followed by match length
+and declaration order, while the full transitive overlap union is redacted.
+`layers` accepts `deterministic`; requesting `ner` or `model` is rejected. The
+same layer option is accepted by `redactText(text, options?)`.
 
 ## Guarantees and limitations
 
@@ -60,17 +66,21 @@ placeholders are applied once from right to left.
   `[REDACTION_FAILED]` fail-closed marker.
 - Invalid input and detector failures fail closed locally; this is not a claim
   of perfect PII recall.
+- Alpha 1 does not inspect media contents. It preserves only cloned
+  `Uint8Array`/`ArrayBuffer` payloads and rejects string/base64, URL/data-URL,
+  and textual tool-result media by failing the containing message closed.
 - Alpha 1 does not implement Transformers.js NER, a Mastra `PIIDetector` model
   layer, reversible restoration, audit logs, telemetry, or structured document
   redaction. `ner` and `model` layers are rejected explicitly.
-- Regexes should be bounded and reviewed by callers. No detector can guarantee
-  detection of every arbitrary identifier or name.
+- Custom-regex execution is time-bounded with worker termination. Regexes
+  should still be reviewed by callers; no detector can guarantee detection of
+  every arbitrary identifier or name.
 
 ## Development
 
 ```sh
 npm run check
-npm pack --dry-run
+npm run verify:package
 npm audit --omit=dev
 ```
 
