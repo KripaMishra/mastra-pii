@@ -161,7 +161,7 @@ describe('Alpha 1 deterministic PII redaction', () => {
     expect(Date.now() - started < 2_000).toBe(true);
   });
 
-  it('serializes nested custom-pattern jobs and awaits every worker termination', async () => {
+  it('batches and dedupes custom-pattern detection with one worker per chunk', async () => {
     const originalPostMessage = Worker.prototype.postMessage;
     const originalTerminate = Worker.prototype.terminate;
     const activeWorkers = new WeakSet<Worker>();
@@ -187,15 +187,23 @@ describe('Alpha 1 deterministic PII redaction', () => {
     });
     try {
       const pii = createLayeredPii({ patterns: [{ name: 'canary', regex: /CANARY-[0-9]+/g, entity: 'custom' }] });
-      const prompt = [{ role: 'assistant', content: [{
-        type: 'tool-call', toolCallId: 'call-1', toolName: 'lookup',
-        input: { values: Array.from({ length: 6 }, (_, index) => `CANARY-${index}`) },
+      const toolResult = (rows: unknown[]) => [{ role: 'tool', content: [{
+        type: 'tool-result', toolCallId: 'call-1', toolName: 'lookup', output: { type: 'json', value: { rows } },
       }] }];
-      const output = await pii.processor.processLLMRequest(processorArgs(prompt, 0) as never);
-      expect(outputHasSensitive(output)).toBe(false);
+      // 40 identical strings dedupe to one detection: a single worker call.
+      const duplicated = await pii.processor.processLLMRequest(processorArgs(
+        toolResult(Array.from({ length: 40 }, () => 'CANARY-1')), 0) as never,
+      );
+      expect(outputHasSensitive(duplicated)).toBe(false);
+      expect(terminated).toBe(1);
+      // 300 unique strings split into two chunks: two serialized worker calls.
+      const chunked = await pii.processor.processLLMRequest(processorArgs(
+        toolResult(Array.from({ length: 300 }, (_, index) => `CANARY-${index}`)), 1) as never,
+      );
+      expect(outputHasSensitive(chunked)).toBe(false);
+      expect(terminated).toBe(3);
       expect(maximumActive).toBe(1);
       expect(active).toBe(0);
-      expect(terminated).toBe(9);
     } finally {
       postMessage.mockRestore();
       terminate.mockRestore();
@@ -377,20 +385,20 @@ describe('Alpha 1 deterministic PII redaction', () => {
     expect(outputInvocation?.result).not.toBe(toolInvocation.result);
   });
 
-  it('fails processInput messages closed when structural identifiers would be redacted', async () => {
+  it('copies structural identifiers verbatim while redacting their surrounding fields', async () => {
     const invocation = (toolCallId: string, toolName: string, approvalId = 'approval-safe') => ({
-      state: 'approval-requested', toolCallId, toolName, args: {}, approval: { id: approvalId },
+      state: 'approval-requested', toolCallId, toolName,
+      args: { query: 'CANARY-QUERY synthetic@example.test' },
+      approval: { id: approvalId },
     });
     const messages = [
-      message([{ type: 'tool-invocation', toolInvocation: invocation('CANARY-CALL', 'lookup') }]),
-      message([{ type: 'tool-invocation', toolInvocation: invocation('call-safe', 'CANARY-TOOL') }]),
-      message([{ type: 'text', text: 'safe' }], { toolInvocations: [invocation('call-safe', 'lookup', 'CANARY-APPROVAL')] }),
+      message([{ type: 'tool-invocation', toolInvocation: invocation('CANARY-CALL', 'CANARY-TOOL') }]),
+      message([{ type: 'tool-invocation', toolInvocation: invocation('call-safe', 'lookup', 'CANARY-APPROVAL') }]),
+      message([{ type: 'text', text: 'safe' }], { toolInvocations: [invocation('call-safe', 'lookup')] }),
     ];
     const systemMessages = [
-      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'CANARY-CALL', toolName: 'lookup', args: {} }] },
-      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'call-safe', toolName: 'CANARY-TOOL', args: {} }] },
-      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'CANARY-CALL', toolName: 'lookup', result: {} }] },
-      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'call-safe', toolName: 'CANARY-TOOL', result: {} }] },
+      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'CANARY-CALL', toolName: 'lookup', args: { query: 'CANARY-QUERY' } }] },
+      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'CANARY-CALL', toolName: 'lookup', result: { query: 'CANARY-QUERY' } }] },
     ];
     const beforeMessages = structuredClone(messages);
     const beforeSystemMessages = structuredClone(systemMessages);
@@ -404,25 +412,47 @@ describe('Alpha 1 deterministic PII redaction', () => {
     const outputMessages = 'messages' in result ? result.messages : [];
     const outputSystemMessages = 'systemMessages' in result ? result.systemMessages : [];
     expect(outputMessages).toHaveLength(messages.length);
-    for (const output of outputMessages) {
-      expect(output.content.parts[0]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
-    }
-    expect(outputSystemMessages).toEqual(systemMessages.map(() => ({ role: 'system', content: '[REDACTION_FAILED]' })));
+    const firstInvocation = (outputMessages[0]?.content.parts[0] as { toolInvocation?: Record<string, unknown> }).toolInvocation;
+    const secondApproval = (outputMessages[1]?.content.parts[0] as { toolInvocation?: { approval?: Record<string, unknown> } }).toolInvocation?.approval;
+    const legacyInvocation = (outputMessages[2]?.content.toolInvocations as Record<string, unknown>[] | undefined)?.[0];
+    expect(firstInvocation).toMatchObject({ toolCallId: 'CANARY-CALL', toolName: 'CANARY-TOOL' });
+    expect(firstInvocation?.args).toMatchObject({ query: expect.stringContaining('[CUSTOM_1]') });
+    expect(secondApproval).toMatchObject({ id: 'CANARY-APPROVAL' });
+    expect(legacyInvocation).toMatchObject({ toolCallId: 'call-safe', toolName: 'lookup' });
+    expect(JSON.stringify(firstInvocation?.args)).not.toContain('CANARY-QUERY');
+    expect(JSON.stringify(outputSystemMessages)).not.toContain('CANARY-QUERY');
+    expect(JSON.stringify(outputSystemMessages)).toContain('CANARY-CALL');
+    expect(outputSystemMessages).toHaveLength(systemMessages.length);
   });
 
-  it('fails processLLMRequest messages closed when modern tool identifiers would be redacted', async () => {
+  it('copies modern tool identifiers verbatim while redacting tool payloads', async () => {
     const prompt = [
-      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'CANARY-CALL', toolName: 'lookup', input: {} }] },
-      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'call-safe', toolName: 'CANARY-TOOL', input: {} }] },
-      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'CANARY-CALL', toolName: 'lookup', output: { type: 'json', value: {} } }] },
-      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'call-safe', toolName: 'CANARY-TOOL', output: { type: 'json', value: {} } }] },
+      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'CANARY-CALL', toolName: 'CANARY-TOOL', input: { query: 'CANARY-QUERY synthetic@example.test' } }] },
+      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'call-safe', toolName: 'lookup', output: { type: 'json', value: { query: 'CANARY-QUERY synthetic@example.test' } } }] },
     ];
     const before = structuredClone(prompt);
     const pii = createLayeredPii({ patterns: [{ name: 'identifier-canary', regex: /CANARY-[A-Z]+/g }] });
     const result = await pii.processor.processLLMRequest(processorArgs(prompt, 0) as never);
     expect(prompt).toEqual(before);
     const output = result && 'prompt' in result ? result.prompt : undefined;
-    expect(output).toEqual(prompt.map(() => ({ role: 'system', content: '[REDACTION_FAILED]' })));
+    expect(output).toHaveLength(prompt.length);
+    const callPart = output?.[0]?.content[0] as { toolCallId?: string; toolName?: string; input?: { query?: string } } | undefined;
+    const resultPart = output?.[1]?.content[0] as { output?: { value?: { query?: string } } } | undefined;
+    expect(callPart).toMatchObject({ toolCallId: 'CANARY-CALL', toolName: 'CANARY-TOOL' });
+    expect(callPart?.input?.query).toContain('[CUSTOM_1]');
+    expect(resultPart?.output?.value?.query).toContain('[CUSTOM_1]');
+    expect(JSON.stringify(output)).not.toContain('CANARY-QUERY');
+    expect(JSON.stringify(output)).toContain('CANARY-CALL');
+  });
+
+  it('preserves provider-generated UUID tool call ids verbatim', async () => {
+    const toolCallId = 'call_550e8400-e29b-41d4-a716-446655440000';
+    const pii = createLayeredPii();
+    const prompt = [{ role: 'tool', content: [{
+      type: 'tool-result', toolCallId, toolName: 'lookup', output: { type: 'json', value: { note: 'safe' } },
+    }] }];
+    const result = await pii.processor.processLLMRequest(processorArgs(prompt, 0) as never);
+    expect(result && 'prompt' in result ? result.prompt?.[0]?.content[0] : undefined).toMatchObject({ toolCallId });
   });
 
   it('preserves safe tool and approval identifiers exactly so call-result pairing survives', async () => {
@@ -513,7 +543,7 @@ describe('Alpha 1 deterministic PII redaction', () => {
     const nestedSourceProviderMetadata = { vendor: { note: 'synthetic@example.test' } };
     const documentProviderMetadata = { vendor: { note: 'synthetic@example.test' } };
     const dataProviderMetadata = { vendor: { note: 'synthetic@example.test' } };
-    const data = { 'synthetic@example.test': { note: 'synthetic@example.test' } };
+    const data = { customer: { note: 'synthetic@example.test' } };
     const original = {
       ...message([
         { type: 'text', text: 'safe', providerMetadata: textProviderMetadata },
@@ -557,22 +587,22 @@ describe('Alpha 1 deterministic PII redaction', () => {
   });
 
   it('redacts providerOptions on Mastra, Core, and prompt messages and parts without mutation', async () => {
-    const mastraMessageOptions = { vendor: { 'synthetic@example.test': true } };
-    const mastraContentOptions = { vendor: { 'synthetic@example.test': true } };
-    const mastraPartOptions = { vendor: { 'synthetic@example.test': true } };
+    const mastraMessageOptions = { vendor: { note: 'synthetic@example.test' } };
+    const mastraContentOptions = { vendor: { note: 'synthetic@example.test' } };
+    const mastraPartOptions = { vendor: { note: 'synthetic@example.test' } };
     const mastraPart = { type: 'text', text: 'safe', providerOptions: mastraPartOptions };
     const mastra = {
       ...message([mastraPart], { providerOptions: mastraContentOptions }),
       providerOptions: mastraMessageOptions,
     } as unknown as MastraDBMessage;
-    const coreMessageOptions = { vendor: { 'synthetic@example.test': true } };
-    const corePartOptions = { vendor: { 'synthetic@example.test': true } };
+    const coreMessageOptions = { vendor: { note: 'synthetic@example.test' } };
+    const corePartOptions = { vendor: { note: 'synthetic@example.test' } };
     const core = {
       role: 'user', providerOptions: coreMessageOptions,
       content: [{ type: 'text', text: 'safe', providerOptions: corePartOptions }],
     };
-    const promptMessageOptions = { vendor: { 'synthetic@example.test': true } };
-    const promptPartOptions = { vendor: { 'synthetic@example.test': true } };
+    const promptMessageOptions = { vendor: { note: 'synthetic@example.test' } };
+    const promptPartOptions = { vendor: { note: 'synthetic@example.test' } };
     const prompt = [{
       role: 'user', providerOptions: promptMessageOptions,
       content: [{ type: 'text', text: 'safe', providerOptions: promptPartOptions }],
@@ -602,7 +632,7 @@ describe('Alpha 1 deterministic PII redaction', () => {
     expect((outputPrompt?.content[0] as unknown as { providerOptions: unknown }).providerOptions).not.toBe(promptPartOptions);
   });
 
-  it('redacts JSON property names, preserves plain-object descriptors, and fails closed on key collisions', async () => {
+  it('redacts JSON property values while preserving object key names and descriptors', async () => {
     const providerOptions = Object.create(null) as Record<string, unknown>;
     Object.defineProperty(providerOptions, 'synthetic@example.test', {
       value: { safe: true }, enumerable: true, configurable: false, writable: false,
@@ -612,20 +642,39 @@ describe('Alpha 1 deterministic PII redaction', () => {
     const result = await pii.processor.processLLMRequest(processorArgs(prompt, 0) as never);
     const output = result && 'prompt' in result ? result.prompt?.[0] : undefined;
     const outputOptions = (output?.content[0] as unknown as { providerOptions: Record<string, unknown> }).providerOptions;
-    expect(outputHasSensitive(output)).toBe(false);
+    // Keys are schema identifiers and are copied verbatim; the email-shaped key
+    // is deliberately preserved while its nested object is cloned.
+    expect(outputOptions).not.toBe(providerOptions);
     expect(Object.getPrototypeOf(outputOptions)).toBeNull();
-    expect(Object.keys(outputOptions)).toEqual(['[EMAIL_1]']);
-    expect(Object.getOwnPropertyDescriptor(outputOptions, '[EMAIL_1]')).toMatchObject({
+    expect(Object.keys(outputOptions)).toEqual(['synthetic@example.test']);
+    expect(Object.getOwnPropertyDescriptor(outputOptions, 'synthetic@example.test')).toMatchObject({
       enumerable: true, configurable: false, writable: false,
     });
     expect(Object.keys(providerOptions)).toEqual(['synthetic@example.test']);
 
+    // PII-shaped keys no longer collide: both keys survive unchanged.
     const collision = { 'synthetic@example.test': true, '[EMAIL_1]': false };
-    const failed = await pii.processor.processLLMRequest(processorArgs([{
+    const kept = await pii.processor.processLLMRequest(processorArgs([{
       role: 'user', content: [{ type: 'text', text: 'safe', providerOptions: collision }],
     }], 0) as never);
-    expect(failed && 'prompt' in failed ? failed.prompt?.[0] : undefined).toEqual({ role: 'system', content: '[REDACTION_FAILED]' });
-    expect(outputHasSensitive(failed)).toBe(false);
+    expect(kept && 'prompt' in kept ? kept.prompt?.[0]?.content[0] : undefined).toMatchObject({ providerOptions: collision });
+  });
+
+  it('redacts string values nested under PII-shaped keys', async () => {
+    const pii = createLayeredPii();
+    const prompt = [{ role: 'user', content: [{ type: 'text', text: 'safe', providerOptions: {
+      'synthetic@example.test': 'alpha@example.test',
+    } }] }];
+    const result = await pii.processor.processLLMRequest(processorArgs(prompt, 0) as never);
+    const output = result && 'prompt' in result ? result.prompt?.[0] : undefined;
+    const outputOptions = (output?.content[0] as unknown as { providerOptions: Record<string, unknown> }).providerOptions;
+    expect(outputOptions).toEqual({ 'synthetic@example.test': '[EMAIL_1]' });
+    expect(JSON.stringify(output)).not.toContain('alpha@example.test');
+  });
+
+  it('defaults custom pattern priority above built-in detections', async () => {
+    const pii = createLayeredPii({ patterns: [{ name: 'whole-email', regex: /[a-z]+@[a-z.]+/g }] });
+    expect(await pii.redactText('alpha@example.test')).toBe('[CUSTOM_1]');
   });
 
   it('allows repeated sibling references while rejecting true array cycles', async () => {
@@ -728,7 +777,7 @@ describe('Alpha 1 deterministic PII redaction', () => {
     expect(outputMedia?.data).not.toBe(media);
   });
 
-  it('rejects string, URL, data-URL, and base64 media while cloning opaque binary media', async () => {
+  it('replaces unsupported media with a part-level marker while cloning opaque binary media', async () => {
     const mastraBinary = new Uint8Array([4, 5, 6]);
     const coreBinary = new Uint8Array([7, 8, 9]).buffer;
     const promptBinary = new Uint8Array([10, 11, 12]);
@@ -736,7 +785,7 @@ describe('Alpha 1 deterministic PII redaction', () => {
     const promptUrl = new URL('https://example.test/synthetic@example.test');
     const mastraMessages = [
       message([{ type: 'file', data: 'data:text/plain,synthetic@example.test', mimeType: 'text/plain' }]),
-      message([], { experimental_attachments: [{ url: 'https://example.test/synthetic@example.test' }] }),
+      message([{ type: 'text', text: 'keep me synthetic@example.test' }], { experimental_attachments: [{ url: 'https://example.test/uploads/synthetic@example.test', name: 'synthetic@example.test' }] }),
       message([{ type: 'file', data: mastraBinary, mimeType: 'application/octet-stream' }]),
     ];
     const coreMessages = [
@@ -771,11 +820,20 @@ describe('Alpha 1 deterministic PII redaction', () => {
     const outputMastra = 'messages' in input ? input.messages : [];
     const outputCore = 'systemMessages' in input ? input.systemMessages : [];
     const outputPrompt = llm && 'prompt' in llm ? llm.prompt ?? [] : [];
+    // Unsupported media fails closed at part granularity; the rest of each message survives.
     expect(outputMastra[0]?.content.parts[0]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
-    expect(outputMastra[1]?.content.parts[0]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
-    expect(outputCore[0]).toEqual({ role: 'system', content: '[REDACTION_FAILED]' });
-    expect(outputCore[1]).toEqual({ role: 'system', content: '[REDACTION_FAILED]' });
-    expect(outputPrompt.slice(0, 3)).toEqual(Array.from({ length: 3 }, () => ({ role: 'system', content: '[REDACTION_FAILED]' })));
+    expect(outputMastra[0]?.id).toBe('synthetic-message');
+    const attachments = outputMastra[1]?.content.experimental_attachments as { url?: string; name?: string }[] | undefined;
+    expect(outputMastra[1]?.content.parts[0]).toMatchObject({ type: 'text', text: 'keep me [EMAIL_1]' });
+    expect(attachments?.[0]?.url).toContain('[EMAIL_1]');
+    expect(attachments?.[0]?.url).not.toContain('synthetic@example.test');
+    expect(attachments?.[0]?.name).toBe('[EMAIL_1]');
+    expect((outputCore[0]?.content as unknown[])[0]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
+    expect(outputCore[0]?.role).toBe('user');
+    expect((outputCore[1]?.content as unknown[])[0]?.experimental_content).toEqual([{ type: 'text', text: '[REDACTION_FAILED]' }]);
+    expect((outputPrompt[0]?.content as unknown[])[0]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
+    expect((outputPrompt[1]?.content as unknown[])[0]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
+    expect((outputPrompt[2]?.content as unknown[])[0]?.output).toMatchObject({ type: 'content', value: [{ type: 'text', text: '[REDACTION_FAILED]' }] });
     const outputMastraMedia = outputMastra[2]?.content.parts[0] as unknown as { data: unknown };
     const outputCoreMedia = (outputCore[2]?.content[0] as unknown as { data: unknown });
     const outputPromptMedia = (outputPrompt[3]?.content[0] as unknown as { data: unknown });
@@ -786,6 +844,23 @@ describe('Alpha 1 deterministic PII redaction', () => {
     expect(outputPromptMedia.data).toEqual(promptBinary);
     expect(outputPromptMedia.data).not.toBe(promptBinary);
     expect(outputHasSensitive([outputMastra, outputCore, outputPrompt])).toBe(false);
+  });
+
+  it('keeps unrelated text parts when a media part is unsupported', async () => {
+    const pii = createLayeredPii();
+    const image = { type: 'image', image: new URL('https://example.test/photo.png') };
+    const original = message([{ type: 'text', text: 'user text synthetic@example.test' }, image]);
+    const result = await pii.processor.processInput?.({
+      messages: [original], systemMessages: [], messageList: {} as never,
+      abort: () => { throw new Error('abort'); }, state: {}, retryCount: 0,
+    });
+    // The caller-owned URL part is untouched and the text part is unmodified.
+    expect((original.content.parts[1] as { image: URL }).image).toBe(image.image);
+    expect((original.content.parts[0] as { text: string }).text).toBe('user text synthetic@example.test');
+    const output = result && 'messages' in result ? result.messages[0] : undefined;
+    expect(output?.content.parts[0]).toMatchObject({ type: 'text', text: 'user [CUSTOM_1] [EMAIL_1]' });
+    expect(output?.content.parts[1]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
+    expect(outputHasSensitive(output)).toBe(false);
   });
 
   it('fails an LLM prompt message closed for unsupported tool payloads', async () => {
