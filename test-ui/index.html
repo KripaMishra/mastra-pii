@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f0e9" />
+    <meta name="description" content="A local test console for deterministic Mastra PII redaction." />
+    <title>Mastra PII / Test Console</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="wordmark" href="./" aria-label="Mastra PII test console home">
+        <span class="wordmark-mark">M</span>
+        <span>mastra <strong>pii</strong></span>
+      </a>
+      <div class="topbar-meta">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>LOCAL / ALPHA 1</span>
+        <span class="topbar-divider" aria-hidden="true"></span>
+        <span>DETERMINISTIC</span>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="intro" aria-labelledby="page-title">
+        <div class="intro-copy">
+          <p class="eyebrow">01 / REDACTION WORKBENCH</p>
+          <h1 id="page-title">Put a message through the <em>privacy layer.</em></h1>
+          <p class="intro-summary">
+            Exercise the Alpha 1 processor with real text, entity filters, and bounded custom patterns.
+            Everything runs inside the package's Node runtime—no model or detector network calls.
+          </p>
+        </div>
+        <div class="intro-aside" aria-label="Package capabilities">
+          <div class="aside-line"><span>RUNTIME</span><strong>NODE 22+</strong></div>
+          <div class="aside-line"><span>NETWORK</span><strong>NONE</strong></div>
+          <div class="aside-line"><span>LAYERS</span><strong>01 AVAILABLE</strong></div>
+        </div>
+      </section>
+
+      <div class="workbench">
+        <section class="panel input-panel" aria-labelledby="input-heading">
+          <div class="panel-heading">
+            <div class="panel-title">
+              <span class="panel-number">02</span>
+              <div>
+                <p class="eyebrow">SOURCE PAYLOAD</p>
+                <h2 id="input-heading">Input</h2>
+              </div>
+            </div>
+            <button class="quiet-button" id="load-sample" type="button">Load sample <span aria-hidden="true">↗</span></button>
+          </div>
+
+          <div class="textarea-wrap">
+            <label class="sr-only" for="input-text">Text to redact</label>
+            <textarea id="input-text" rows="9" spellcheck="false" aria-describedby="input-help"></textarea>
+            <div class="textarea-footer">
+              <span id="input-help">Paste a prompt, message, or log line to test.</span>
+              <span id="char-count">0 chars</span>
+            </div>
+          </div>
+
+          <div class="panel-rule"></div>
+
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">TUNABLE PARAMETERS</p>
+              <h3>Configuration</h3>
+            </div>
+            <button class="quiet-button" id="reset-config" type="button">Reset</button>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>Processor id</span>
+              <input id="processor-id" type="text" value="mastra-pii" autocomplete="off" />
+              <small>Optional label returned by the processor.</small>
+            </label>
+            <label class="field">
+              <span>Layer</span>
+              <select id="layer" aria-describedby="layer-help">
+                <option value="deterministic">deterministic</option>
+              </select>
+              <small id="layer-help">NER and model layers arrive later.</small>
+            </label>
+          </div>
+
+          <fieldset class="entity-fieldset">
+            <legend>
+              <span>Entity filters</span>
+              <span class="legend-count" id="entity-count">14 / 14 active</span>
+            </legend>
+            <div class="entity-grid" id="entity-grid"></div>
+            <p class="field-note">Only selected entity types are replaced. Leave all active for the default pass.</p>
+          </fieldset>
+
+          <div class="patterns-section">
+            <div class="section-heading section-heading-tight">
+              <div>
+                <p class="eyebrow">DETERMINISTIC EXTENSIONS</p>
+                <h3>Custom patterns</h3>
+              </div>
+              <button class="quiet-button" id="add-pattern" type="button">+ Add pattern</button>
+            </div>
+            <div class="pattern-list" id="pattern-list" aria-live="polite"></div>
+            <p class="field-note">Patterns run in a terminable local worker. Higher priority wins overlaps.</p>
+          </div>
+
+          <div class="action-row">
+            <button class="primary-button" id="run-redaction" type="button">
+              <span>Redact input</span>
+              <span class="button-shortcut"><kbd>⌘</kbd><kbd>↵</kbd></span>
+            </button>
+            <span class="action-hint">No data is stored.</span>
+          </div>
+        </section>
+
+        <section class="panel output-panel" aria-labelledby="output-heading" aria-live="polite">
+          <div class="panel-heading">
+            <div class="panel-title">
+              <span class="panel-number">03</span>
+              <div>
+                <p class="eyebrow">SANITIZED PAYLOAD</p>
+                <h2 id="output-heading">Output</h2>
+              </div>
+            </div>
+            <span class="run-status" id="run-status">READY</span>
+          </div>
+
+          <div class="output-card" id="output-card">
+            <div class="output-empty" id="output-empty">
+              <span class="empty-mark" aria-hidden="true">→</span>
+              <p>Run the payload to see<br />placeholder output here.</p>
+            </div>
+            <pre id="output-text" hidden></pre>
+          </div>
+
+          <div class="summary-grid" aria-label="Run summary">
+            <div class="summary-item">
+              <span>REDACTIONS</span>
+              <strong id="redaction-count">—</strong>
+            </div>
+            <div class="summary-item">
+              <span>LATENCY</span>
+              <strong id="duration">—</strong>
+            </div>
+            <div class="summary-item">
+              <span>ENTITIES</span>
+              <strong id="summary-entities">14</strong>
+            </div>
+            <div class="summary-item">
+              <span>PATTERNS</span>
+              <strong id="summary-patterns">1</strong>
+            </div>
+          </div>
+
+          <div class="output-footer">
+            <span class="footer-lock" aria-hidden="true">▣</span>
+            <p>Fail-closed by default. Detector values and raw matches never leave the package.</p>
+          </div>
+          <p class="error-message" id="error-message" role="alert" hidden></p>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <span>@kripamishra/mastra-pii</span>
+      <span>TEST SURFACE / VERCEL READY</span>
+      <a href="https://github.com/KripaMishra/mastra-pii" rel="noreferrer">View package ↗</a>
+    </footer>
+
+    <noscript>
+      <div class="noscript-message">JavaScript is required to run the redaction test console.</div>
+    </noscript>
+  </body>
+</html>
