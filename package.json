@@ -1,7 +1,7 @@
 {
   "name": "@kripamishra/mastra-pii",
-  "version": "0.1.0-alpha.1",
-  "description": "Layered PII redaction processor for Mastra",
+  "version": "0.2.0-alpha.2",
+  "description": "Adapter-based PII redaction processor for Mastra (Presidio remote or local deterministic)",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -11,6 +11,8 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/analyzer.js",
+    "dist/analyzer.d.ts",
     "dist/custom-pattern-worker.js",
     "LICENSE",
     "README.md"
@@ -32,9 +34,7 @@
     "verify:package": "node scripts/verify-package.mjs",
     "prepack": "npm run check"
   },
-  "dependencies": {
-    "@openredaction/core": "1.1.5"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@mastra/core": ">=1.57.0 <2"
   },

@@ -1,6 +1,6 @@
 import { Worker } from 'node:worker_threads';
-import { LiteOpenRedaction } from '@openredaction/core/lite';
-import type { PIIDetection } from '@openredaction/core/lite';
+import { LruCache, createLocalAdapter, createPresidioAdapter } from './analyzer.js';
+import type { Analyzer, AnalyzerSpan, PresidioAdapterConfig } from './analyzer.js';
 import type {
   CoreMessageV4,
   MastraDBMessage,
@@ -11,7 +11,9 @@ import type {
   ProcessInputResult,
   ProcessLLMRequestArgs,
   ProcessLLMRequestResult,
+  ProcessOutputResultArgs,
   Processor,
+  ProcessorMessageResult,
 } from '@mastra/core/processors';
 
 /** Stable entity names emitted by Alpha 1 placeholders. */
@@ -29,7 +31,14 @@ export type PiiEntity =
   | 'ssn'
   | 'token'
   | 'uuid'
-  | 'medical-id';
+  | 'medical-id'
+  | 'aadhaar'
+  | 'pan'
+  | 'upi'
+  | 'ifsc'
+  | 'voter-id'
+  | 'driving-license'
+  | 'vehicle';
 
 /** Alpha 1 exposes one deterministic local layer. */
 export type PiiLayer = 'deterministic' | 'ner' | 'model';
@@ -55,9 +64,19 @@ export interface LayeredPiiConfig {
   /** Alias for integrations that call these custom patterns. */
   readonly customPatterns?: readonly PiiPattern[];
   readonly layers?: readonly PiiLayer[];
+  /** Engine. Default: the local deterministic adapter. Mutually exclusive with `presidio`. */
+  readonly analyzer?: Analyzer;
+  /** Remote Presidio container shorthand (createPresidioAdapter). Mutually exclusive with `analyzer`. */
+  readonly presidio?: PresidioAdapterConfig;
+  /** On analyzer failure: 'local' falls back to the deterministic engine (default), 'strict' fails closed. */
+  readonly fallback?: 'local' | 'strict';
+  /** Per-text redaction cache, keyed by text (0 disables; default 256). */
+  readonly cacheSize?: number;
+  /** Placeholder style: 'type' emits [ENTITY_n] (default), 'uniform' emits a fixed token. */
+  readonly anonymize?: { readonly format?: 'type' | 'uniform'; readonly uniformToken?: string };
 }
 
-export type PiiProcessor = Processor<string> & Required<Pick<Processor<string>, 'processInput' | 'processLLMRequest'>>;
+export type PiiProcessor = Processor<string> & Required<Pick<Processor<string>, 'processInput' | 'processLLMRequest' | 'processOutputResult'>>;
 
 export interface LayeredPii {
   readonly id: string;
@@ -67,6 +86,9 @@ export interface LayeredPii {
 }
 
 const FAILURE_PLACEHOLDER = '[REDACTION_FAILED]';
+
+export { createLocalAdapter, createPresidioAdapter, INDIAN_DEFAULTS } from './analyzer.js';
+export type { Analyzer, AnalyzerSpan, PresidioAdapterConfig, PresidioPatternRecognizer } from './analyzer.js';
 const DEFAULT_ID = 'mastra-pii';
 const MAX_TEXT_LENGTH = 1_000_000;
 const CUSTOM_PATTERN_TIMEOUT_BASE_MS = 250;
@@ -78,6 +100,7 @@ const SUPPORTED_LAYERS = new Set<PiiLayer>(['deterministic']);
 const ENTITY_NAMES = new Set<PiiEntity>([
   'address', 'bank-account', 'credit-card', 'custom', 'date-of-birth', 'email',
   'ip-address', 'name', 'passport', 'phone', 'ssn', 'token', 'uuid', 'medical-id',
+  'aadhaar', 'pan', 'upi', 'ifsc', 'voter-id', 'driving-license', 'vehicle',
 ]);
 
 type JsonCloneState = { readonly active: WeakSet<object>; nodes: number };
@@ -139,6 +162,16 @@ function validateConfig(config: LayeredPiiConfig): void {
   }
   validatePatterns(config.patterns);
   validatePatterns(config.customPatterns);
+  if (config.analyzer !== undefined && config.presidio !== undefined) fail('PII configuration must not set both analyzer and presidio');
+  if (config.analyzer !== undefined && (config.analyzer === null || typeof config.analyzer !== 'object' || typeof config.analyzer.analyze !== 'function')) fail('PII analyzer must implement analyze(text)');
+  if (config.presidio !== undefined && (config.presidio === null || typeof config.presidio !== 'object' || Array.isArray(config.presidio))) fail('PII presidio configuration must be an object');
+  if (config.fallback !== undefined && config.fallback !== 'local' && config.fallback !== 'strict') fail('PII fallback must be "local" or "strict"');
+  if (config.cacheSize !== undefined && (!Number.isInteger(config.cacheSize) || config.cacheSize < 0)) fail('PII cacheSize must be a non-negative integer');
+  if (config.anonymize !== undefined) {
+    if (config.anonymize === null || typeof config.anonymize !== 'object' || Array.isArray(config.anonymize)) fail('PII anonymize configuration must be an object');
+    if (config.anonymize.format !== undefined && config.anonymize.format !== 'type' && config.anonymize.format !== 'uniform') fail('PII anonymize format must be "type" or "uniform"');
+    if (config.anonymize.uniformToken !== undefined && (typeof config.anonymize.uniformToken !== 'string' || config.anonymize.uniformToken.trim() === '')) fail('PII anonymize uniformToken must be a non-empty string');
+  }
 }
 
 function globalFlags(regex: RegExp): string {
@@ -148,29 +181,38 @@ function globalFlags(regex: RegExp): string {
 
 function normalizedEntity(type: string, configured?: PiiEntity): PiiEntity {
   if (configured) return configured;
-  const value = type.toLowerCase().replace(/[_\s]+/g, '-');
+  const value = type.toLowerCase().replace(/[\s_]+/g, '-');
   const tokens = new Set(value.split('-').filter(Boolean));
   const has = (...terms: string[]): boolean => terms.some((term) => tokens.has(term));
+  if (has('aadhaar', 'aadhar', 'uidai')) return 'aadhaar';
+  if (value === 'pan' || has('pan')) return 'pan';
+  if (has('upi')) return 'upi';
+  if (has('ifsc')) return 'ifsc';
+  if (has('voter', 'epic')) return 'voter-id';
+  if (has('driver', 'license', 'dl')) return 'driving-license';
+  if (has('vehicle', 'registration')) return 'vehicle';
+  if (has('person')) return 'name';
+  if (has('location')) return 'address';
   if ((tokens.has('api') && tokens.has('key')) || (tokens.has('access') && tokens.has('key')) || (tokens.has('service') && tokens.has('account')) || has('password', 'secret', 'token')) return 'token';
   if (value === 'email' || has('email')) return 'email';
   if (has('phone', 'mobile')) return 'phone';
-  if (has('credit', 'card')) return 'credit-card';
+  if (has('credit', 'card', 'cvv', 'expiry')) return 'credit-card';
   if (value === 'ssn' || has('ssn', 'social-security')) return 'ssn';
   if (value === 'ip' || value === 'ipv4' || value === 'ipv6' || value === 'ip-address') return 'ip-address';
   if (has('address')) return 'address';
   if (has('passport')) return 'passport';
   if (has('name')) return 'name';
-  if (has('birth', 'dob')) return 'date-of-birth';
+  if (has('birth', 'dob', 'date', 'time')) return 'date-of-birth';
   if (has('uuid')) return 'uuid';
   if (has('iban', 'bank', 'account')) return 'bank-account';
   if (has('medical', 'health', 'nhs')) return 'medical-id';
   return 'custom';
 }
 
-function builtInSpans(detections: readonly PIIDetection[]): SpanCandidate[] {
+function builtInSpans(detections: readonly AnalyzerSpan[]): SpanCandidate[] {
   return detections.map((detection, order) => ({
-    start: detection.position[0],
-    end: detection.position[1],
+    start: detection.start,
+    end: detection.end,
     entity: normalizedEntity(detection.type),
     priority: 0,
     order,
@@ -276,9 +318,10 @@ function safeSpans(textLength: number, detections: readonly SpanCandidate[], ent
   return selected.sort((a, b) => a.start - b.start || a.end - b.end || a.order - b.order);
 }
 
-function applyPlaceholders(text: string, spans: readonly SpanCandidate[]): string {
+function applyPlaceholders(text: string, spans: readonly SpanCandidate[], format: 'type' | 'uniform' = 'type', uniformToken = '[REDACTED]'): string {
   const counts = new Map<PiiEntity, number>();
   const placeholders = spans.map((span) => {
+    if (format === 'uniform') return uniformToken;
     const number = (counts.get(span.entity) ?? 0) + 1;
     counts.set(span.entity, number);
     return `[${span.entity.toUpperCase()}_${number}]`;
@@ -743,31 +786,12 @@ export function createLayeredPii(config: LayeredPiiConfig = {}): LayeredPii {
     return queued.then(() => results);
   };
 
-  const detectorOptions = {
-    includeNames: false,
-    includeAddresses: false,
-    includePhones: true,
-    includeEmails: true,
-    deterministic: true,
-    redactionMode: 'placeholder' as const,
-    enableContextAnalysis: false,
-    enableFalsePositiveFilter: false,
-    enableMultiPass: false,
-    enableCache: false,
-    debug: false,
-    enableAuditLog: false,
-    enableMetrics: false,
-    maxInputSize: 1_000_000,
-    regexTimeout: 100,
-  };
-  let detector: LiteOpenRedaction;
-  let uuidDetector: LiteOpenRedaction;
-  try {
-    detector = new LiteOpenRedaction(detectorOptions);
-    uuidDetector = new LiteOpenRedaction({ ...detectorOptions, patterns: ['DEVICE_UUID'] });
-  } catch {
-    fail('PII detector initialization failed');
-  }
+  const localAdapter = createLocalAdapter();
+  const analyzer: Analyzer = config.presidio !== undefined ? createPresidioAdapter(config.presidio) : (config.analyzer ?? localAdapter);
+  const fallbackAnalyzer: Analyzer | undefined = config.fallback === 'strict' || analyzer === localAdapter ? undefined : localAdapter;
+  const cache = config.cacheSize === 0 ? undefined : new LruCache<string, string>(config.cacheSize ?? 256);
+  const anonymizeFormat: 'type' | 'uniform' = config.anonymize?.format ?? 'type';
+  const uniformToken = config.anonymize?.uniformToken ?? '[REDACTED]';
 
   const redactMany: RedactMany = async (texts: readonly string[]): Promise<string[]> => {
     if (texts.length === 0) return [];
@@ -779,19 +803,36 @@ export function createLayeredPii(config: LayeredPiiConfig = {}): LayeredPii {
         outcome.set(text, FAILURE_PLACEHOLDER);
         continue;
       }
+      const cached = cache?.get(text);
+      if (cached !== undefined) {
+        outcome.set(text, cached);
+        continue;
+      }
       pending.push(text);
     }
     try {
       if (pending.length > 0) {
-        const [builtInResults, uuidResults, custom] = await Promise.all([
-          Promise.all(pending.map((text) => detector.detect(text))),
-          Promise.all(pending.map((text) => uuidDetector.detect(text))),
+        const [analyzed, custom] = await Promise.all([
+          Promise.all(pending.map(async (text) => {
+            try {
+              return builtInSpans(await analyzer.analyze(text));
+            } catch (error) {
+              if (fallbackAnalyzer) return builtInSpans(await fallbackAnalyzer.analyze(text));
+              throw error;
+            }
+          })),
           queuedCustomPatternSpans(pending),
         ]);
         for (let index = 0; index < pending.length; index += 1) {
           const text = pending[index]!;
-          const builtIns = builtInSpans([...builtInResults[index]!.detections, ...uuidResults[index]!.detections]);
-          outcome.set(text, applyPlaceholders(text, safeSpans(text.length, [...builtIns, ...custom[index]!], config.entities)));
+          const redacted = applyPlaceholders(
+            text,
+            safeSpans(text.length, [...analyzed[index]!, ...custom[index]!], config.entities),
+            anonymizeFormat,
+            uniformToken,
+          );
+          outcome.set(text, redacted);
+          cache?.set(text, redacted);
         }
       }
     } catch {
@@ -817,7 +858,7 @@ export function createLayeredPii(config: LayeredPiiConfig = {}): LayeredPii {
   };
 
   let warmupPromise: Promise<void> | undefined;
-  const warmup = (): Promise<void> => (warmupPromise ??= Promise.resolve());
+  const warmup = (): Promise<void> => (warmupPromise ??= analyzer.warmup?.() ?? Promise.resolve());
 
   const processInput = (args: ProcessInputArgs): Promise<ProcessInputResult> => failClosed(async () => {
     if (!args || typeof args !== 'object') throw new Error('invalid processor input');
@@ -832,12 +873,18 @@ export function createLayeredPii(config: LayeredPiiConfig = {}): LayeredPii {
     return { prompt: await redactPrompt(args.prompt, redactMany) };
   }, () => ({ prompt: [failedPromptMessage()] }));
 
+  const processOutputResult = (args: ProcessOutputResultArgs): ProcessorMessageResult => failClosed(async () => {
+    if (!args || typeof args !== 'object') throw new Error('invalid processor output');
+    return redactMessages(args.messages, redactMany);
+  }, () => [failedMastraMessage()]);
+
   const processor: PiiProcessor = {
     id,
     name: 'Mastra PII redaction',
-    description: 'Local deterministic Alpha 1 PII redaction',
+    description: 'Adapter-based PII redaction for the agent loop (Presidio remote or local deterministic)',
     processInput,
     processLLMRequest,
+    processOutputResult,
   };
 
   return { id, warmup, redactText, processor };
