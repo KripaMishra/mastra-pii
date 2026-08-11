@@ -27,7 +27,7 @@ const MAX_PATTERNS = 24;
 const VALID_FLAGS = /^[dgimsuvy]*$/;
 const PLACEHOLDER_PATTERN = /\[[A-Z-]+_\d+\]/g;
 const FAILURE_PLACEHOLDER = '[REDACTION_FAILED]';
-const PATTERN_VALIDATION_TIMEOUT_MS = 150;
+const PATTERN_VALIDATION_TIMEOUT_MS = 300;
 
 class BadRequest extends Error {}
 class PayloadTooLarge extends Error {}
@@ -142,7 +142,7 @@ function validatePatterns(text, patterns) {
     worker.once('exit', () => finish(new BadRequest('Custom pattern validation failed.')));
     worker.once('online', () => {
       try {
-        worker.postMessage({ text, patterns: patterns.map(({ regex }) => ({ source: regex.source, flags: effectiveFlags(regex) })) });
+        worker.postMessage({ texts: [text], patterns: patterns.map(({ regex }) => ({ source: regex.source, flags: effectiveFlags(regex) })) });
       } catch {
         finish(new BadRequest('Custom pattern validation failed.'));
       }
