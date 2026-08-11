@@ -1,0 +1,19 @@
+services:
+  presidio-analyzer:
+    image: ghcr.io/data-privacy-stack/presidio-analyzer:2.2.362  # moved from mcr.microsoft.com/microsoft-presidio-analyzer
+    # Quirk on this host: the image's stock gunicorn entrypoint forks a worker that never
+    # accepts connections (idle on futex, listener inherited). Bypass with werkzeug —
+    # same create_app()/routes, fine for local benchmarking. Use the stock entrypoint
+    # on production hosts (or investigate before trusting it there).
+    command: ["python", "-c", "from app import create_app; create_app().run(host='0.0.0.0', port=3000, threaded=True)"]
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:3000/health', timeout=5)"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
