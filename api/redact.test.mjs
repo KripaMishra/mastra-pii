@@ -34,6 +34,41 @@ describe('redaction API contract', () => {
     expect(result.payload.error).toMatch(/non-empty|empty/i);
   });
 
+  it('reports the local engine when PRESIDIO_URL is unset', async () => {
+    const previous = process.env.PRESIDIO_URL;
+    delete process.env.PRESIDIO_URL;
+    try {
+      const result = await invoke({ text: 'PAN ABCDE1234F' });
+      expect(result.statusCode).toBe(200);
+      expect(result.payload.config.engine).toBe('local');
+      expect(result.payload.output).toContain('[PAN_1]');
+    } finally {
+      if (previous === undefined) delete process.env.PRESIDIO_URL;
+      else process.env.PRESIDIO_URL = previous;
+    }
+  });
+
+  it('uses the PRESIDIO_URL engine and degrades to local on outage', async () => {
+    const previous = process.env.PRESIDIO_URL;
+    process.env.PRESIDIO_URL = 'http://127.0.0.1:1';
+    try {
+      const result = await invoke({ text: 'PAN ABCDE1234F' });
+      expect(result.statusCode).toBe(200);
+      expect(result.payload.config.engine).toBe('presidio');
+      // dead endpoint -> default 'local' fallback still redacts
+      expect(result.payload.output).toContain('[PAN_1]');
+    } finally {
+      if (previous === undefined) delete process.env.PRESIDIO_URL;
+      else process.env.PRESIDIO_URL = previous;
+    }
+  });
+
+  it('rejects client-supplied presidio configuration', async () => {
+    const result = await invoke({ text: 'safe', config: { presidio: { url: 'http://x' } } });
+    expect(result.statusCode).toBe(400);
+    expect(result.payload.error).toMatch(/PRESIDIO_URL/);
+  });
+
   it('accepts documented pattern.type aliases', async () => {
     const result = await invoke({ text: 'CANARY-123', config: { patterns: [{ type: 'token', regex: 'CANARY-[0-9]+' }] } });
     expect(result.statusCode).toBe(200);

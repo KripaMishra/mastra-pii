@@ -13,6 +13,13 @@ const ENTITIES = [
   ['token', 'Token'],
   ['medical-id', 'Medical ID'],
   ['custom', 'Custom'],
+  ['aadhaar', 'Aadhaar'],
+  ['pan', 'PAN'],
+  ['upi', 'UPI'],
+  ['ifsc', 'IFSC'],
+  ['voter-id', 'Voter ID'],
+  ['driving-license', 'Driving license'],
+  ['vehicle', 'Vehicle'],
 ];
 
 const SAMPLE_TEXT = [
@@ -41,6 +48,7 @@ const elements = {
   status: document.querySelector('#run-status'),
   redactionCount: document.querySelector('#redaction-count'),
   duration: document.querySelector('#duration'),
+  engine: document.querySelector('#engine'),
   summaryEntities: document.querySelector('#summary-entities'),
   summaryPatterns: document.querySelector('#summary-patterns'),
   error: document.querySelector('#error-message'),
@@ -161,6 +169,7 @@ function clearOutput() {
   elements.outputText.textContent = '';
   elements.redactionCount.textContent = '—';
   elements.duration.textContent = '—';
+  elements.engine.textContent = '—';
   elements.status.textContent = 'READY';
   elements.status.className = 'run-status';
   elements.error.hidden = true;
@@ -210,6 +219,7 @@ async function runRedaction() {
     elements.outputText.textContent = data.output;
     elements.redactionCount.textContent = String(data.redactionCount);
     elements.duration.textContent = `${data.durationMs} ms`;
+    elements.engine.textContent = data.config.engine === 'presidio' ? 'presidio (remote)' : 'local deterministic';
     elements.status.textContent = 'COMPLETE';
     elements.status.className = 'run-status is-success';
   } catch (error) {
@@ -221,6 +231,7 @@ async function runRedaction() {
     elements.status.className = 'run-status is-error';
     elements.redactionCount.textContent = '—';
     elements.duration.textContent = '—';
+    elements.engine.textContent = '—';
   } finally {
     elements.run.disabled = false;
     elements.run.removeAttribute('aria-busy');
