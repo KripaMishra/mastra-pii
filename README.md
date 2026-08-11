@@ -44,7 +44,10 @@ await pii.warmup(); // health-checks the remote service (no-op for local)
 const safe = await pii.redactText('Aadhaar 7316 7253 5875, PAN ABCDE1234F');
 // "Aadhaar [AADHAAR_1], PAN [PAN_1]"
 
-const agent = new Agent({ inputProcessors: [pii.processor] });
+const agent = new Agent({
+  inputProcessors: [pii.processor],   // user input + every prompt
+  outputProcessors: [pii.processor],  // assistant output
+});
 ```
 
 The processor sanitizes the initial Mastra input (`processInput`), the final
