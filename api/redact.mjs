@@ -16,6 +16,13 @@ const ENTITY_NAMES = new Set([
   'token',
   'uuid',
   'medical-id',
+  'aadhaar',
+  'pan',
+  'upi',
+  'ifsc',
+  'voter-id',
+  'driving-license',
+  'vehicle',
 ]);
 const MAX_REQUEST_BYTES = 1_100_000;
 const MAX_INPUT_LENGTH = 1_000_000;
@@ -187,6 +194,8 @@ async function normalizeConfig(config, text) {
     normalized.entities = config.entities;
   }
 
+  if (config.presidio !== undefined) throw new BadRequest('The presidio engine is configured server-side via PRESIDIO_URL.');
+
   const patterns = [
     ...(Array.isArray(config.patterns) ? config.patterns : []),
     ...(Array.isArray(config.customPatterns) ? config.customPatterns : []),
@@ -226,8 +235,10 @@ export default async function handler(req, res) {
     if (body.text.length > MAX_INPUT_LENGTH) throw new PayloadTooLarge('Input text is too large.');
 
     const config = await normalizeConfig(body.config ?? {}, body.text);
+    const presidioUrl = process.env.PRESIDIO_URL;
+    const piiConfig = presidioUrl ? { ...config, presidio: { url: presidioUrl } } : config;
     const startedAt = performance.now();
-    const pii = createLayeredPii(config);
+    const pii = createLayeredPii(piiConfig);
     const output = await pii.redactText(body.text, { layers: config.layers });
     if (output === FAILURE_PLACEHOLDER && output !== body.text) return send(res, 500, { error: 'Redaction failed. Try a smaller input or simpler pattern.' });
     const redactionCount = newPlaceholderCount(body.text, output);
@@ -241,6 +252,7 @@ export default async function handler(req, res) {
         layers: config.layers,
         entityCount: config.entities?.length ?? ENTITY_NAMES.size,
         patternCount: config.patterns.length,
+        engine: presidioUrl ? 'presidio' : 'local',
       },
     });
   } catch (error) {

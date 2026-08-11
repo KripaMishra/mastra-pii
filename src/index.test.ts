@@ -1,7 +1,15 @@
 import { Worker } from 'node:worker_threads';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import type { MastraDBMessage } from '@mastra/core/agent/message-list';
-import { createLayeredPii } from './index.js';
+import {
+  createLayeredPii,
+  createLocalAdapter,
+  createPresidioAdapter,
+  INDIAN_DEFAULTS,
+} from './index.js';
+import type { Analyzer } from './index.js';
 
 const message = (parts: unknown[], extra: Record<string, unknown> = {}): MastraDBMessage => ({
   id: 'synthetic-message',
@@ -11,7 +19,7 @@ const message = (parts: unknown[], extra: Record<string, unknown> = {}): MastraD
 } as MastraDBMessage);
 
 function containsSensitive(text: string): boolean {
-  return /(?:canary|synthetic@example\.test|alpha@example\.test|123-45-6789)\b/i.test(text);
+  return /(?:canary|synthetic@example\.test|alpha@example\.test|7316 7253 5875|ABCDE1234F)\b/i.test(text);
 }
 
 function outputHasSensitive(value: unknown): boolean {
@@ -32,25 +40,29 @@ const processorArgs = (prompt: unknown[], stepNumber: number) => ({
 describe('Alpha 1 deterministic PII redaction', () => {
   it('redacts structured identifiers with stable taxonomy placeholders', async () => {
     const pii = createLayeredPii();
-    const output = await pii.redactText(`email ${'alpha'}@${'example.test'} and SSN 123-45-6789`);
+    const output = await pii.redactText(`email ${'alpha'}@${'example.test'} and Aadhaar 7316 7253 5875`);
     expect(output.includes('[EMAIL_1]')).toBe(true);
-    expect(output.includes('[SSN_1]')).toBe(true);
+    expect(output.includes('[AADHAAR_1]')).toBe(true);
     expect(containsSensitive(output)).toBe(false);
   });
 
   it('normalizes representative dependency detections to stable entities', async () => {
     const cases = [
       ['email', 'email alpha@example.test', '[EMAIL_1]'],
-      ['phone', 'phone +44 7700 900123', '[PHONE_1]'],
-      ['ssn', 'SSN 123-45-6789', '[SSN_1]'],
-      ['credit card', 'card 4111 1111 1111 1111', '[CREDIT-CARD_1]'],
-      ['bank account', 'bank account 12345678', '[BANK-ACCOUNT_1]'],
+      ['phone', 'phone +91 98765 43210', '[PHONE_1]'],
+      ['aadhaar', 'Aadhaar 7316 7253 5875', '[AADHAAR_1]'],
+      ['pan', 'PAN ABCDE1234F', '[PAN_1]'],
+      ['upi', 'UPI 9999999999@ybl', '[UPI_1]'],
+      ['ifsc', 'IFSC SBIN0001234', '[IFSC_1]'],
+      ['bank account', 'bank account 123456789', '[BANK-ACCOUNT_1]'],
       ['public IP', 'IP 192.0.2.1', '[IP-ADDRESS_1]'],
-      ['UUID', 'device UUID 550e8400-e29b-41d4-a716-446655440000', '[UUID_1]'],
-      ['passport', 'passport number AB123456', '[PASSPORT_1]'],
+      ['passport', 'passport number Z1234567', '[PASSPORT_1]'],
       ['date of birth', 'DOB 01/02/1990', '[DATE-OF-BIRTH_1]'],
       ['credential', 'secret=abcd1234', '[TOKEN_1]'],
-      ['medical ID', 'NHS number 943 476 5919', '[MEDICAL-ID_1]'],
+      ['voter id', 'voter id ABC1234567', '[VOTER-ID_1]'],
+      ['driving license', 'DL MH-12-2011-0012345', '[DRIVING-LICENSE_1]'],
+      ['vehicle', 'vehicle DL 01 AB 1234', '[VEHICLE_1]'],
+      ['credit card', 'card 4532 1122 3344 5566', '[CREDIT-CARD_1]'],
     ] as const;
     const pii = createLayeredPii();
     for (const [, input, placeholder] of cases) {
@@ -63,11 +75,13 @@ describe('Alpha 1 deterministic PII redaction', () => {
   it('normalizes credential forms before account forms for entity filtering', async () => {
     const pii = createLayeredPii({ entities: ['token'] });
     const output = await pii.redactText(
-      'STRIPE_API_KEY=sk_test_51H8abc12345678901234567890 ' +
-      'GCP_SERVICE_ACCOUNT {"type":"service_account","private_key_id":"1234567890123456789012345678901234567890"}',
+      'STRIPE_KEY=sk-51H8abc12345678901234567890 ' +
+      'password=hunter2 ' +
+      'account 9876543210',
     );
-    expect(output.includes('sk_test_')).toBe(false);
-    expect(output.includes('1234567890123456789012345678901234567890')).toBe(false);
+    expect(output.includes('sk-51H8abc')).toBe(false);
+    expect(output.includes('hunter2')).toBe(false);
+    expect(output.includes('9876543210')).toBe(true);
     expect(output.includes('[TOKEN_1]')).toBe(true);
     expect(output.includes('[TOKEN_2]')).toBe(true);
   });
@@ -858,7 +872,7 @@ describe('Alpha 1 deterministic PII redaction', () => {
     expect((original.content.parts[1] as { image: URL }).image).toBe(image.image);
     expect((original.content.parts[0] as { text: string }).text).toBe('user text synthetic@example.test');
     const output = result && 'messages' in result ? result.messages[0] : undefined;
-    expect(output?.content.parts[0]).toMatchObject({ type: 'text', text: 'user [CUSTOM_1] [EMAIL_1]' });
+    expect(output?.content.parts[0]).toMatchObject({ type: 'text', text: 'user text [EMAIL_1]' });
     expect(output?.content.parts[1]).toMatchObject({ type: 'text', text: '[REDACTION_FAILED]' });
     expect(outputHasSensitive(output)).toBe(false);
   });
@@ -892,5 +906,158 @@ describe('Alpha 1 deterministic PII redaction', () => {
       retryCount: 0,
     });
     expect(original).toEqual(before);
+  });
+});
+
+describe('adapter architecture (Presidio remote + local fallback)', () => {
+  function withServer(handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, body: string) => void): Promise<{ url: string; close: () => Promise<void> }> {
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(chunk as Buffer));
+      req.on('end', () => handler(req, res, Buffer.concat(chunks).toString('utf8')));
+    });
+    return new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address() as AddressInfo;
+        resolve({
+          url: `http://127.0.0.1:${address.port}`,
+          close: () => new Promise((done) => server.close(() => done())),
+        });
+      });
+    });
+  }
+
+  it('remote presidio adapter sends allowlist + ad_hoc recognizers and applies shape filters', async () => {
+    const text = `bhai ${'Kripa Shankar Mishra'} IFSC 42 15/08/1995 7316 7253 5875 4829 1048 5920 9876543210`;
+    const name = text.indexOf('Kripa Shankar Mishra');
+    const date = text.indexOf('15/08/1995');
+    const aadhaar = text.indexOf('7316 7253 5875');
+    const badAadhaar = text.indexOf('4829 1048 5920');
+    const phone = text.indexOf('9876543210');
+    let seenBody = '';
+    const { url, close } = await withServer((_req, res, body) => {
+      seenBody = body;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify([
+        { entity_type: 'PERSON', start: text.indexOf('bhai'), end: text.indexOf('bhai') + 4, score: 0.85 },
+        { entity_type: 'PERSON', start: name, end: name + 20, score: 0.85 },
+        { entity_type: 'LOCATION', start: text.indexOf('IFSC'), end: text.indexOf('IFSC') + 4, score: 0.85 },
+        { entity_type: 'DATE_TIME', start: text.indexOf('42'), end: text.indexOf('42') + 2, score: 0.85 },
+        { entity_type: 'DATE_TIME', start: date, end: date + 10, score: 0.85 },
+        { entity_type: 'AADHAAR', start: aadhaar, end: aadhaar + 14, score: 0.6 },
+        { entity_type: 'AADHAAR', start: badAadhaar, end: badAadhaar + 14, score: 0.6 },
+        { entity_type: 'PHONE_NUMBER', start: phone, end: phone + 10, score: 0.4 },
+      ]));
+    });
+    try {
+      const adapter = createPresidioAdapter({ url, timeoutMs: 2000 });
+      const spans = await adapter.analyze(text);
+      const payload = JSON.parse(seenBody);
+      expect(payload.entities).toContain('PERSON');
+      expect(payload.entities).not.toContain('UK_NHS');
+      expect(payload.ad_hoc_recognizers.length).toBe(INDIAN_DEFAULTS.length);
+      // shape filters: no "bhai", no LOCATION "IFSC", no "42", no bad checksum, no 0.40 phone
+      expect(spans.map((s) => [s.type, text.slice(s.start, s.end)])).toEqual([
+        ['PERSON', 'Kripa Shankar Mishra'],
+        ['DATE_TIME', '15/08/1995'],
+        ['AADHAAR', '7316 7253 5875'],
+      ]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('type-aware dedupe: UPI beats the higher-scoring PHONE_NUMBER on overlap', async () => {
+    const text = '9999999999@ybl';
+    const { url, close } = await withServer((_req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify([
+        { entity_type: 'PHONE_NUMBER', start: 0, end: 10, score: 0.75 },
+        { entity_type: 'UPI', start: 0, end: 14, score: 0.6 },
+      ]));
+    });
+    try {
+      const adapter = createPresidioAdapter({ url, timeoutMs: 2000 });
+      const spans = await adapter.analyze(text);
+      expect(spans).toEqual([{ type: 'UPI', start: 0, end: 14, score: 0.6 }]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('outage: local fallback by default, strict fails closed', async () => {
+    const dead = { presidio: { url: 'http://127.0.0.1:1', timeoutMs: 300, retries: 0 } };
+    const fallback = createLayeredPii({ ...dead, fallback: 'local' });
+    const output = await fallback.redactText('PAN ABCDE1234F');
+    expect(output).toBe('PAN [PAN_1]');
+    const strict = createLayeredPii({ ...dead, fallback: 'strict' });
+    const failed = await strict.redactText('PAN ABCDE1234F');
+    expect(failed).toBe('[REDACTION_FAILED]');
+  });
+
+  it('warmup health-checks the remote service once', async () => {
+    let healthCalls = 0;
+    const { url, close } = await withServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/health') {
+        healthCalls += 1;
+        res.end('ok');
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    try {
+      const pii = createLayeredPii({ presidio: { url, timeoutMs: 2000 } });
+      await pii.warmup();
+      await pii.warmup();
+      expect(healthCalls).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it('LRU cache skips the analyzer for repeated texts; cacheSize 0 disables', async () => {
+    let calls = 0;
+    const counting: Analyzer = {
+      id: 'counting',
+      analyze: async (t) => {
+        calls += 1;
+        return createLocalAdapter().analyze(t);
+      },
+    };
+    const pii = createLayeredPii({ analyzer: counting });
+    await pii.redactText('PAN ABCDE1234F');
+    await pii.redactText('PAN ABCDE1234F');
+    expect(calls).toBe(1);
+    const uncached = createLayeredPii({ analyzer: counting, cacheSize: 0 });
+    await uncached.redactText('PAN ABCDE1234F');
+    await uncached.redactText('PAN ABCDE1234F');
+    expect(calls).toBe(3);
+  });
+
+  it('uniform anonymize format emits a fixed token', async () => {
+    const pii = createLayeredPii({ anonymize: { format: 'uniform' } });
+    const output = await pii.redactText('PAN ABCDE1234F phone 98765 43210');
+    expect(output).not.toContain('[PAN_1]');
+    expect(output).not.toContain('ABCDE1234F');
+    expect(output).not.toContain('98765 43210');
+    expect(output).toBe('PAN [REDACTED] phone [REDACTED]');
+  });
+
+  it('processOutputResult redacts the assistant output message', async () => {
+    const pii = createLayeredPii();
+    const output = await pii.processor.processOutputResult?.({
+      messages: [message([{ type: 'text', text: 'your PAN is ABCDE1234F' }])],
+      messageList: {} as never,
+      state: {},
+    });
+    expect(JSON.stringify(output)).not.toContain('ABCDE1234F');
+  });
+
+  it('validates the adapter configuration surface', () => {
+    expect(() => createLayeredPii({ analyzer: createLocalAdapter(), presidio: { url: 'http://x' } })).toThrow('both analyzer and presidio');
+    expect(() => createLayeredPii({ fallback: 'nope' as never })).toThrow('fallback');
+    expect(() => createLayeredPii({ cacheSize: -1 })).toThrow('cacheSize');
+    expect(() => createLayeredPii({ anonymize: { format: 'masked' as never } })).toThrow('format');
   });
 });

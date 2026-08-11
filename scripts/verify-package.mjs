@@ -7,6 +7,8 @@ const root = resolve(import.meta.dirname, '..');
 const expectedFiles = [
   'LICENSE',
   'README.md',
+  'dist/analyzer.d.ts',
+  'dist/analyzer.js',
   'dist/custom-pattern-worker.js',
   'dist/index.d.ts',
   'dist/index.js',

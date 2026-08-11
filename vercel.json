@@ -4,8 +4,7 @@
   "framework": null,
   "functions": {
     "api/redact.mjs": {
-      "runtime": "nodejs22.x",
-      "includeFiles": ["dist/custom-pattern-worker.js"]
+      "includeFiles": "dist/custom-pattern-worker.js"
     }
   },
   "headers": [

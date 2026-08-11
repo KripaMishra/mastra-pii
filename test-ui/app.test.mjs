@@ -45,7 +45,7 @@ function makeDocument() {
   const ids = [
     'input-text', 'char-count', 'processor-id', 'layer', 'entity-grid', 'entity-count',
     'pattern-list', 'output-card', 'output-empty', 'output-text', 'run-status',
-    'redaction-count', 'duration', 'summary-entities', 'summary-patterns', 'error-message',
+    'redaction-count', 'duration', 'engine', 'summary-entities', 'summary-patterns', 'error-message',
     'run-redaction', 'load-sample', 'reset-config', 'add-pattern',
   ];
   const elements = new Map(ids.map((id) => [id, new FakeElement()]))
@@ -63,7 +63,7 @@ describe('test console error state', () => {
     const document = makeDocument();
     const context = vm.createContext({
       document,
-      fetch: async () => ({ ok: true, json: async () => ({ output: '[REDACTION_FAILED]', redactionCount: 0, durationMs: 1 }) }),
+      fetch: async () => ({ ok: true, json: async () => ({ output: '[REDACTION_FAILED]', redactionCount: 0, durationMs: 1, config: { engine: 'local' } }) }),
       console,
       setTimeout,
     });
