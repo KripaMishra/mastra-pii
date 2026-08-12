@@ -36,4 +36,7 @@ jobs:
       - run: npm ci
       - run: npm run verify:package
       - run: npm audit --omit=dev
-      - run: npm publish --access public --provenance
+      - name: "Publish (dist-tag derived from version: alpha/beta/rc, else latest)"
+        run: |
+          TAG="$(node -p "const v=require('./package.json').version; v.includes('-') ? v.split('-')[1].split('.')[0] : 'latest'")"
+          npm publish --access public --provenance --tag "$TAG"
