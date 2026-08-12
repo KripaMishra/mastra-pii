@@ -68,28 +68,53 @@ function luhn(num: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// INDIAN_DEFAULTS — the benchmarked recognizer set (port of RECS)
+// RECOGNIZERS — single source for both engines (benchmarked set, port of RECS)
+//
+// The presidio shape (INDIAN_DEFAULTS) needs JSON-serializable regex strings,
+// scores and context; the local engine needs RegExp literals, priorities and
+// optional checksums. Both derive from this one table — never duplicated.
+// Case-sensitivity is preserved per engine (local adds /i for UPI/SECRET/
+// EXPIRY/CVV); aligning the engines is tracked in the recognizer tickets.
 // ---------------------------------------------------------------------------
 
-export const INDIAN_DEFAULTS: readonly PresidioPatternRecognizer[] = [
-  { name: 'IFSC', supported_language: 'en', supported_entity: 'IFSC', patterns: [{ name: 'ifsc', regex: '\\b[A-Z]{4}0[A-Z0-9]{6}\\b', score: 0.6 }], context: ['ifsc', 'bank', 'branch'] },
-  { name: 'AADHAAR', supported_language: 'en', supported_entity: 'AADHAAR', patterns: [{ name: 'aadhaar', regex: '\\b[1-9]\\d{3}[ ]?\\d{4}[ ]?\\d{4}\\b', score: 0.6 }], context: ['aadhaar', 'aadhar', 'uidai', 'adhaar'] },
-  { name: 'PAN', supported_language: 'en', supported_entity: 'PAN', patterns: [{ name: 'pan', regex: '\\b[A-Z]{5}\\d{4}[A-Z]\\b', score: 0.6 }], context: ['pan', 'permanent account number'] },
-  { name: 'VOTER_ID', supported_language: 'en', supported_entity: 'VOTER_ID', patterns: [{ name: 'voter', regex: '\\b[A-Z]{3,4}\\d{7}\\b', score: 0.55 }], context: ['voter', 'epic'] },
-  { name: 'UPI', supported_language: 'en', supported_entity: 'UPI', patterns: [{ name: 'upi', regex: '\\b[\\w.-]{2,}@(?:ok[a-z]+|ybl|paytm|apl|axl|ibl|upi|icici|sbi|hdfc|kotak|yesbank|federal|jio|payzapp|amazonpay|phonepe|cred|freecharge|mobikwik|yono)\\b', score: 0.6 }], context: ['upi', 'handle', 'pay'] },
-  { name: 'CARD', supported_language: 'en', supported_entity: 'CARD', patterns: [{ name: 'card', regex: '\\b\\d{4}[ -]?\\d{4}[ -]?\\d{4}[ -]?\\d{4}\\b', score: 0.6 }], context: ['card', 'credit', 'debit'] },
-  { name: 'PHONE', supported_language: 'en', supported_entity: 'PHONE', patterns: [{ name: 'phone', regex: '(?:\\+91[ -]?|0)?[6-9]\\d{4}[ -]\\d{5}\\b|(?:\\+91[ -]?|0)?[6-9]\\d{9}\\b', score: 0.6 }], context: ['phone', 'mobile', 'call', 'reach'] },
-  { name: 'EMAIL', supported_language: 'en', supported_entity: 'EMAIL', patterns: [{ name: 'email', regex: '\\b[\\w.+-]+@[\\w-]+\\.[\\w.]+\\b', score: 0.6 }], context: ['email', 'mail'] },
-  { name: 'IP', supported_language: 'en', supported_entity: 'IP', patterns: [{ name: 'ip', regex: '\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b', score: 0.6 }], context: ['ip', 'address'] },
-  { name: 'BANK_ACC', supported_language: 'en', supported_entity: 'BANK_ACC', patterns: [{ name: 'acc', regex: '\\b\\d{9,18}\\b', score: 0.4 }], context: ['account', 'acc', 'bank'] },
-  { name: 'DOB', supported_language: 'en', supported_entity: 'DOB', patterns: [{ name: 'dob', regex: '\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b', score: 0.4 }], context: ['dob', 'birth', 'born'] },
-  { name: 'VEHICLE', supported_language: 'en', supported_entity: 'VEHICLE', patterns: [{ name: 'vehicle', regex: '\\b[A-Z]{2}[ ]?\\d{1,2}[ ]?[A-Z]{1,2}[ ]?\\d{4}\\b', score: 0.5 }], context: ['vehicle', 'registration', 'reg', 'car'] },
-  { name: 'DL', supported_language: 'en', supported_entity: 'DL', patterns: [{ name: 'dl', regex: '\\b[A-Z]{2}[-/]?\\d{2}[-/]?\\d{4,11}\\b', score: 0.5 }], context: ['driving', 'license', 'dl'] },
-  { name: 'PASSPORT', supported_language: 'en', supported_entity: 'PASSPORT', patterns: [{ name: 'passport', regex: '\\b[A-Z][1-9]\\d{6}\\b', score: 0.5 }], context: ['passport'] },
-  { name: 'EXPIRY', supported_language: 'en', supported_entity: 'EXPIRY', patterns: [{ name: 'expiry', regex: '(?:exp|expiry|valid (?:thru|through))[^\\d]{0,8}(\\d{2}/\\d{2})', score: 0.5 }], context: ['expiry', 'exp', 'valid'] },
-  { name: 'CVV', supported_language: 'en', supported_entity: 'CVV', patterns: [{ name: 'cvv', regex: '(?:cvv|security code)[^\\d]{0,8}(\\d{3})', score: 0.5 }], context: ['cvv', 'security code'] },
-  { name: 'SECRET', supported_language: 'en', supported_entity: 'SECRET', patterns: [{ name: 'secret', regex: '(?:password|secret|pin)[^\\w]{0,6}([\\w!@#$%^&*]{4,})|\\bsk-[A-Za-z0-9_-]{20,}\\b', score: 0.55 }], context: ['password', 'secret', 'pin'] },
+type RecognizerSpec = {
+  readonly type: string;
+  readonly regex: string;
+  readonly score: number;
+  readonly priority: number;
+  readonly caseInsensitive?: boolean;
+  readonly context?: readonly string[];
+  readonly validate?: (value: string) => boolean;
+};
+
+const RECOGNIZERS: readonly RecognizerSpec[] = [
+  { type: 'IFSC', regex: '\\b[A-Z]{4}0[A-Z0-9]{6}\\b', score: 0.6, priority: 80, context: ['ifsc', 'bank', 'branch'] },
+  { type: 'AADHAAR', regex: '\\b[1-9]\\d{3}[ ]?\\d{4}[ ]?\\d{4}\\b', score: 0.6, priority: 90, context: ['aadhaar', 'aadhar', 'uidai', 'adhaar'], validate: (v) => verhoeff(v.replace(/ /g, '')) },
+  { type: 'PAN', regex: '\\b[A-Z]{5}\\d{4}[A-Z]\\b', score: 0.6, priority: 90, context: ['pan', 'permanent account number'] },
+  { type: 'VOTER_ID', regex: '\\b[A-Z]{3,4}\\d{7}\\b', score: 0.55, priority: 80, context: ['voter', 'epic'] },
+  { type: 'UPI', regex: '\\b[\\w.-]{2,}@(?:ok[a-z]+|ybl|paytm|apl|axl|ibl|upi|icici|sbi|hdfc|kotak|yesbank|federal|jio|payzapp|amazonpay|phonepe|cred|freecharge|mobikwik|yono)\\b', score: 0.6, priority: 80, caseInsensitive: true, context: ['upi', 'handle', 'pay'] },
+  { type: 'CARD', regex: '\\b\\d{4}[ -]?\\d{4}[ -]?\\d{4}[ -]?\\d{4}\\b', score: 0.6, priority: 70, context: ['card', 'credit', 'debit'] },
+  { type: 'PHONE', regex: '(?:\\+91[ -]?|0)?[6-9]\\d{4}[ -]\\d{5}\\b|(?:\\+91[ -]?|0)?[6-9]\\d{9}\\b', score: 0.6, priority: 70, context: ['phone', 'mobile', 'call', 'reach'] },
+  { type: 'EMAIL', regex: '\\b[\\w.+-]+@[\\w-]+\\.[\\w.]+\\b', score: 0.6, priority: 70, context: ['email', 'mail'] },
+  { type: 'IP', regex: '\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b', score: 0.6, priority: 70, context: ['ip', 'address'] },
+  { type: 'BANK_ACC', regex: '\\b\\d{9,18}\\b', score: 0.4, priority: 40, context: ['account', 'acc', 'bank'] },
+  { type: 'DOB', regex: '\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b', score: 0.4, priority: 40, context: ['dob', 'birth', 'born'] },
+  { type: 'VEHICLE', regex: '\\b[A-Z]{2}[ ]?\\d{1,2}[ ]?[A-Z]{1,2}[ ]?\\d{4}\\b', score: 0.5, priority: 60, context: ['vehicle', 'registration', 'reg', 'car'] },
+  { type: 'DL', regex: '\\b[A-Z]{2}[-/]?\\d{2}[-/]?\\d{4,11}\\b', score: 0.5, priority: 60, context: ['driving', 'license', 'dl'] },
+  { type: 'PASSPORT', regex: '\\b[A-Z][1-9]\\d{6}\\b', score: 0.5, priority: 60, context: ['passport'] },
+  { type: 'EXPIRY', regex: '(?:exp|expiry|valid (?:thru|through))[^\\d]{0,8}(\\d{2}/\\d{2})', score: 0.5, priority: 60, caseInsensitive: true, context: ['expiry', 'exp', 'valid'] },
+  { type: 'CVV', regex: '(?:cvv|security code)[^\\d]{0,8}(\\d{3})', score: 0.5, priority: 60, caseInsensitive: true, context: ['cvv', 'security code'] },
+  { type: 'SECRET', regex: '(?:password|secret|pin)[^\\w]{0,6}([\\w!@#$%^&*]{4,})|\\bsk-[A-Za-z0-9_-]{20,}\\b', score: 0.55, priority: 60, caseInsensitive: true, context: ['password', 'secret', 'pin'] },
 ];
+
+/** Presidio ad_hoc shape: JSON-serializable strings for the container. */
+export const INDIAN_DEFAULTS: readonly PresidioPatternRecognizer[] = RECOGNIZERS.map((recognizer) => ({
+  name: recognizer.type,
+  supported_language: 'en',
+  supported_entity: recognizer.type,
+  patterns: [{ name: recognizer.type.toLowerCase(), regex: recognizer.regex, score: recognizer.score }],
+  ...(recognizer.context === undefined ? {} : { context: recognizer.context }),
+}));
 
 /** Curated entity allowlist: spaCy NER types we trust + Indian ad_hoc types. */
 const ENTITY_ALLOWLIST = [
@@ -224,25 +249,13 @@ export function createPresidioAdapter(config: PresidioAdapterConfig): Analyzer {
 
 type LocalRecognizer = { readonly type: string; readonly priority: number; readonly re: RegExp; readonly validate?: (value: string) => boolean };
 
-const LOCAL_RECS: readonly LocalRecognizer[] = [
-  { type: 'IFSC', priority: 80, re: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g },
-  { type: 'AADHAAR', priority: 90, re: /\b[1-9]\d{3}[ ]?\d{4}[ ]?\d{4}\b/g, validate: (v) => verhoeff(v.replace(/ /g, '')) },
-  { type: 'PAN', priority: 90, re: /\b[A-Z]{5}\d{4}[A-Z]\b/g },
-  { type: 'VOTER_ID', priority: 80, re: /\b[A-Z]{3,4}\d{7}\b/g },
-  { type: 'UPI', priority: 80, re: /\b[\w.-]{2,}@(?:ok[a-z]+|ybl|paytm|apl|axl|ibl|upi|icici|sbi|hdfc|kotak|yesbank|federal|jio|payzapp|amazonpay|phonepe|cred|freecharge|mobikwik|yono)\b/gi },
-  { type: 'CARD', priority: 70, re: /\b\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{4}\b/g },
-  { type: 'PHONE', priority: 70, re: /(?:\+91[ -]?|0)?[6-9]\d{4}[ -]\d{5}\b|(?:\+91[ -]?|0)?[6-9]\d{9}\b/g },
-  { type: 'EMAIL', priority: 70, re: /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g },
-  { type: 'IP', priority: 70, re: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g },
-  { type: 'BANK_ACC', priority: 40, re: /\b\d{9,18}\b/g },
-  { type: 'DOB', priority: 40, re: /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/g },
-  { type: 'VEHICLE', priority: 60, re: /\b[A-Z]{2}[ ]?\d{1,2}[ ]?[A-Z]{1,2}[ ]?\d{4}\b/g },
-  { type: 'DL', priority: 60, re: /\b[A-Z]{2}[-/]?\d{2}[-/]?\d{4,11}\b/g },
-  { type: 'PASSPORT', priority: 60, re: /\b[A-Z][1-9]\d{6}\b/g },
-  { type: 'EXPIRY', priority: 60, re: /(?:exp|expiry|valid (?:thru|through))[^\d]{0,8}(\d{2}\/\d{2})/gi },
-  { type: 'CVV', priority: 60, re: /(?:cvv|security code)[^\d]{0,8}(\d{3})/gi },
-  { type: 'SECRET', priority: 60, re: /(?:password|secret|pin)[^\w]{0,6}([\w!@#$%^&*]{4,})|\bsk-[A-Za-z0-9_-]{20,}\b/gi },
-];
+/** Local engine shape derived from the same RECOGNIZERS table. */
+const LOCAL_RECS: readonly LocalRecognizer[] = RECOGNIZERS.map((recognizer) => ({
+  type: recognizer.type,
+  priority: recognizer.priority,
+  re: new RegExp(recognizer.regex, recognizer.caseInsensitive ? 'gi' : 'g'),
+  ...(recognizer.validate === undefined ? {} : { validate: recognizer.validate }),
+}));
 
 export function createLocalAdapter(): Analyzer {
   return {
