@@ -125,10 +125,15 @@ function fail(message: string): never {
   throw new TypeError(message);
 }
 
+/** Thrown when a request names the NER/model layers, which this package does not ship. */
+export class LayerUnavailableError extends TypeError {
+  readonly code = 'PII_LAYER_UNAVAILABLE' as const;
+}
+
 function validateLayers(layers: unknown): void {
   if (!Array.isArray(layers) || layers.length === 0) fail('PII layers must be a non-empty array');
   for (const layer of layers) {
-    if (layer === 'ner' || layer === 'model') fail(`PII layer '${layer}' is not available in Alpha 1`);
+    if (layer === 'ner' || layer === 'model') throw new LayerUnavailableError(`PII layer '${layer}' is not available in Alpha 1`);
     if (typeof layer !== 'string' || !SUPPORTED_LAYERS.has(layer as PiiLayer)) fail('PII layers contain an unsupported layer');
   }
 }
@@ -848,7 +853,7 @@ export function createLayeredPii(config: LayeredPiiConfig = {}): LayeredPii {
         try {
           validateLayers(options.layers);
         } catch (error) {
-          if (error instanceof TypeError && (error.message === "PII layer 'ner' is not available in Alpha 1" || error.message === "PII layer 'model' is not available in Alpha 1")) throw error;
+          if (error instanceof LayerUnavailableError) throw error;
           throw new TypeError('PII layer configuration is invalid');
         }
       }
