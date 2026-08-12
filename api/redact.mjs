@@ -1,29 +1,7 @@
 import { Worker } from 'node:worker_threads';
-import { createLayeredPii } from '../dist/index.js';
+import { createLayeredPii, PII_ENTITY_NAMES } from '../dist/index.js';
 
-const ENTITY_NAMES = new Set([
-  'address',
-  'bank-account',
-  'credit-card',
-  'custom',
-  'date-of-birth',
-  'email',
-  'ip-address',
-  'name',
-  'passport',
-  'phone',
-  'ssn',
-  'token',
-  'uuid',
-  'medical-id',
-  'aadhaar',
-  'pan',
-  'upi',
-  'ifsc',
-  'voter-id',
-  'driving-license',
-  'vehicle',
-]);
+const ENTITY_NAMES = new Set(PII_ENTITY_NAMES);
 const MAX_REQUEST_BYTES = 1_100_000;
 const MAX_INPUT_LENGTH = 1_000_000;
 const MAX_CONFIG_BYTES = 64 * 1024;

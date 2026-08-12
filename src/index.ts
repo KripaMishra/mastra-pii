@@ -16,29 +16,14 @@ import type {
   ProcessorMessageResult,
 } from '@mastra/core/processors';
 
-/** Stable entity names emitted by Alpha 1 placeholders. */
-export type PiiEntity =
-  | 'address'
-  | 'bank-account'
-  | 'credit-card'
-  | 'custom'
-  | 'date-of-birth'
-  | 'email'
-  | 'ip-address'
-  | 'name'
-  | 'passport'
-  | 'phone'
-  | 'ssn'
-  | 'token'
-  | 'uuid'
-  | 'medical-id'
-  | 'aadhaar'
-  | 'pan'
-  | 'upi'
-  | 'ifsc'
-  | 'voter-id'
-  | 'driving-license'
-  | 'vehicle';
+/** Stable entity names emitted by placeholders. Single source for the PiiEntity union and ENTITY_NAMES. */
+export const PII_ENTITY_NAMES = [
+  'address', 'bank-account', 'credit-card', 'custom', 'date-of-birth', 'email',
+  'ip-address', 'name', 'passport', 'phone', 'ssn', 'token', 'uuid', 'medical-id',
+  'aadhaar', 'pan', 'upi', 'ifsc', 'voter-id', 'driving-license', 'vehicle',
+] as const;
+
+export type PiiEntity = (typeof PII_ENTITY_NAMES)[number];
 
 /** Alpha 1 exposes one deterministic local layer. */
 export type PiiLayer = 'deterministic' | 'ner' | 'model';
@@ -97,11 +82,7 @@ const CUSTOM_PATTERN_CHUNK_SIZE = 256;
 const MAX_JSON_DEPTH = 32;
 const MAX_JSON_NODES = 10_000;
 const SUPPORTED_LAYERS = new Set<PiiLayer>(['deterministic']);
-const ENTITY_NAMES = new Set<PiiEntity>([
-  'address', 'bank-account', 'credit-card', 'custom', 'date-of-birth', 'email',
-  'ip-address', 'name', 'passport', 'phone', 'ssn', 'token', 'uuid', 'medical-id',
-  'aadhaar', 'pan', 'upi', 'ifsc', 'voter-id', 'driving-license', 'vehicle',
-]);
+const ENTITY_NAMES = new Set<PiiEntity>(PII_ENTITY_NAMES);
 
 type JsonCloneState = { readonly active: WeakSet<object>; nodes: number };
 type RuntimePattern = {
