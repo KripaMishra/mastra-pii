@@ -107,6 +107,9 @@ function effectiveFlags(regex) {
 }
 
 function validatePatterns(text, patterns) {
+  // ponytail: worker boilerplate (timer/terminate/settle) duplicated in
+  // src/index.ts customPatternSpans — extract a shared runWorker() only when a
+  // third call site appears; sharing now would force a public package export.
   if (patterns.length === 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('../dist/custom-pattern-worker.js', import.meta.url));

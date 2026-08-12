@@ -206,6 +206,9 @@ function builtInSpans(detections: readonly AnalyzerSpan[]): SpanCandidate[] {
 }
 
 /** One worker call per chunk of texts; the worker tags every span with its text index. */
+// ponytail: worker boilerplate (timer/terminate/settle) duplicated in api/redact.mjs
+// validatePatterns — extract a shared runWorker() only when a third call site appears;
+// sharing now would force a public export for an internal detail.
 async function customPatternSpans(texts: readonly string[], patterns: readonly RuntimePattern[]): Promise<SpanCandidate[][]> {
   if (patterns.length === 0 || texts.length === 0) return texts.map(() => []);
   const totalChars = texts.reduce((sum, text) => sum + text.length, 0);
