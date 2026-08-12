@@ -52,5 +52,10 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KripaMishra/mastra-pii.git"
+  },
+  "homepage": "https://github.com/KripaMishra/mastra-pii#readme"
 }
