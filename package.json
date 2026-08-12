@@ -1,6 +1,6 @@
 {
   "name": "@kripamishra/mastra-pii",
-  "version": "0.2.0-alpha.3",
+  "version": "0.2.0-alpha.4",
   "description": "Adapter-based PII redaction processor for Mastra (Presidio remote or local deterministic)",
   "license": "MIT",
   "type": "module",
