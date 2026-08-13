@@ -10,3 +10,4 @@ coverage/
 test_2.json
 tests.json
 docs/publishing.md
+.commandcode/
