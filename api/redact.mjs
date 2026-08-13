@@ -78,8 +78,7 @@ function parsePattern(pattern, index) {
   let regex;
   try {
     regex = new RegExp(source, flags);
-  } catch (error) {
-    if (error instanceof BadRequest) throw error;
+  } catch {
     throw new BadRequest(`Pattern ${index + 1} has an invalid regular expression.`);
   }
 

@@ -171,7 +171,7 @@ function normalizedEntity(type: string, configured?: PiiEntity): PiiEntity {
   const tokens = new Set(value.split('-').filter(Boolean));
   const has = (...terms: string[]): boolean => terms.some((term) => tokens.has(term));
   if (has('aadhaar', 'aadhar', 'uidai')) return 'aadhaar';
-  if (value === 'pan' || has('pan')) return 'pan';
+  if (has('pan')) return 'pan';
   if (has('upi')) return 'upi';
   if (has('ifsc')) return 'ifsc';
   if (has('voter', 'epic')) return 'voter-id';
@@ -180,10 +180,10 @@ function normalizedEntity(type: string, configured?: PiiEntity): PiiEntity {
   if (has('person')) return 'name';
   if (has('location')) return 'address';
   if ((tokens.has('api') && tokens.has('key')) || (tokens.has('access') && tokens.has('key')) || (tokens.has('service') && tokens.has('account')) || has('password', 'secret', 'token')) return 'token';
-  if (value === 'email' || has('email')) return 'email';
+  if (has('email')) return 'email';
   if (has('phone', 'mobile')) return 'phone';
   if (has('credit', 'card', 'cvv', 'expiry')) return 'credit-card';
-  if (value === 'ssn' || has('ssn', 'social-security')) return 'ssn';
+  if (has('ssn', 'social-security')) return 'ssn';
   if (value === 'ip' || value === 'ipv4' || value === 'ipv6' || value === 'ip-address') return 'ip-address';
   if (has('address')) return 'address';
   if (has('passport')) return 'passport';

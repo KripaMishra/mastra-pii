@@ -8,7 +8,7 @@ import { performance } from 'node:perf_hooks';
 
 const CORPUS_PATH = process.argv[2] ?? fileURLToPath(new URL('../../test_2.json', import.meta.url));
 const suite = JSON.parse(readFileSync(CORPUS_PATH, 'utf8'));
-const corpus1 = suite.test_sections.map(s => ({
+const corpus = suite.test_sections.map(s => ({
   id: s.section_id, cat: s.category, input: s.input_transcript,
   expected: s.expected_redacted_transcript, traps: s.false_positive_traps || [],
   pii_entities: s.pii_entities,
@@ -198,12 +198,11 @@ function verhoeff(num) {
 }
 
 // ---------- evaluation ----------
-const cases = corpus1; // { id, cat, input, expected, traps, pii_entities? }
 const results = {};
 for (const [name, eng] of Object.entries(engines)) {
-  const stats = { trueSpans: 0, coveredAny: 0, coveredTyped: 0, fps: 0, ms: 0, perType: {}, exactMatch: 0, n: cases.length, trapHits: [] };
+  const stats = { trueSpans: 0, coveredAny: 0, coveredTyped: 0, fps: 0, ms: 0, perType: {}, exactMatch: 0, n: corpus.length, trapHits: [] };
   const t0 = performance.now();
-  for (const c of cases) {
+  for (const c of corpus) {
     const spans = extractTrueSpans(c);
     stats.trueSpans += spans.length;
     if (name === 'redactpii') {
@@ -243,8 +242,8 @@ for (const [name, eng] of Object.entries(engines)) {
 
 // ---------- report ----------
 const typeTotals = {};
-for (const c of cases) for (const s of extractTrueSpans(c)) typeTotals[s.type] = (typeTotals[s.type] ?? 0) + 1;
-console.log('cases: ' + cases.length + ' | true spans: ' + Object.values(typeTotals).reduce((a, b) => a + b, 0));
+for (const c of corpus) for (const s of extractTrueSpans(c)) typeTotals[s.type] = (typeTotals[s.type] ?? 0) + 1;
+console.log('cases: ' + corpus.length + ' | true spans: ' + Object.values(typeTotals).reduce((a, b) => a + b, 0));
 console.log('per-type true counts:', JSON.stringify(typeTotals));
 console.log();
 for (const [name, r] of Object.entries(results)) {
