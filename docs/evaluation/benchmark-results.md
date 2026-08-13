@@ -11,7 +11,7 @@
   true type (per-engine type map). **Coverage** = any overlap regardless of type.
   **FP** = detections overlapping no true span. **Fully-correct** = all true spans in a
   message covered with correct types.
-- Engines: openredaction lite (current dep), `@redactpii/node` 1.0.17, `@siddicky/anonymizerts` 1.0.3 (patterns; + bert-base-NER), in-house prototype (17 regexes + Verhoeff), Piiranha ONNX q8 via transformers.js (aggregation `none` + sequential offset reconstruction + B/I merging).
+- Engines: `@redactpii/node` 1.0.17, `@siddicky/anonymizerts` 1.0.3 (patterns; + bert-base-NER), in-house prototype (17 regexes + Verhoeff), Piiranha ONNX q8 via transformers.js (aggregation `none` + sequential offset reconstruction + B/I merging). (openredaction lite was dropped from the harness — see note below.)
 - Latency: wall-clock for all 20 cases after model warm-up, single-threaded, Node 26, this machine. Model downloads excluded.
 
 ## Corpus profile
@@ -108,8 +108,8 @@ Config decisions surfaced:
 
 ```sh
 # corpus: docs/evaluation/indian_pii_testsuite.json
-# harness: docs/evaluation/bench.mjs  (imports engines from local node_modules:
-#   openredaction from repo, @redactpii/node + @siddicky/anonymizerts + @huggingface/transformers from a scratch dir)
+# harness: docs/evaluation/bench.mjs  (needs @redactpii/node, @siddicky/anonymizerts,
+#   @huggingface/transformers — see README "Benchmarking")
 # other corpora: node docs/evaluation/bench-v3.mjs [corpus.json] (default test_2.json);
 #   node docs/evaluation/bench-presidio.mjs v1|v3|resume
 node docs/evaluation/bench.mjs

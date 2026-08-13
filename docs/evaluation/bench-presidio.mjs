@@ -206,12 +206,17 @@ function extractTrueSpans(c) {
   // Preferred: explicit pii_entities[].entity anchors (exact, length-independent).
   if (c.pii_entities && c.pii_entities.length > 0) {
     const spans = [];
+    // Per-value cursor so repeated identical values resolve to successive
+    // occurrences instead of every match collapsing onto the first.
+    const cursor = new Map();
     for (const e of c.pii_entities) {
-      const start = c.input.indexOf(e.entity);
+      const from = cursor.get(e.entity) ?? 0;
+      const start = c.input.indexOf(e.entity, from);
       if (start === -1) {
         console.warn(`  !! entity not found in input: ${e.type} ${JSON.stringify(e.entity)}`);
         continue;
       }
+      cursor.set(e.entity, start + e.entity.length);
       spans.push({ type: normType(e.type), value: e.entity, start, end: start + e.entity.length });
     }
     return spans.sort((a, b) => a.start - b.start);

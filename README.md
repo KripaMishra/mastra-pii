@@ -198,6 +198,31 @@ published numbers. Run the harnesses with
 `node docs/evaluation/bench-v3.mjs [corpus.json]` (default `test_2.json`) or
 `node docs/evaluation/bench-presidio.mjs v1|v3|resume`.
 
+## Benchmarking
+
+The benchmark harnesses compare the package's local engine against three
+external PII engines. Those engines are **not** package dependencies — they are
+benchmark-only and must be installed before the harnesses will run:
+
+```sh
+# from the repository root:
+npm install --no-save \
+  @redactpii/node \
+  @siddicky/anonymizerts \
+  @huggingface/transformers
+```
+
+`@huggingface/transformers` downloads the Piiranha ONNX model (~317 MB) on
+first run; set `env.allowRemoteModels = false` + a local model dir for offline
+use. The engines are imported by bare specifier, so they must be resolvable
+from `docs/evaluation/` (a plain `npm install` in the repo root satisfies
+this).
+
+```sh
+node docs/evaluation/bench-v3.mjs docs/evaluation/resume_pii_testsuite.json
+node docs/evaluation/bench-presidio.mjs resume   # needs the Presidio container (deploy/)
+```
+
 ## Development
 
 ```sh

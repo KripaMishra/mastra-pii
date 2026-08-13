@@ -22,12 +22,17 @@ function extractTrueSpans(section) {
   const { input, expected, pii_entities: entities } = section;
   if (entities && entities.length > 0) {
     const spans = [];
+    // Per-value cursor so repeated identical values resolve to successive
+    // occurrences instead of every match collapsing onto the first.
+    const cursor = new Map();
     for (const e of entities) {
-      const start = input.indexOf(e.entity);
+      const from = cursor.get(e.entity) ?? 0;
+      const start = input.indexOf(e.entity, from);
       if (start === -1) {
         console.warn(`  !! entity not found in input: ${e.type} ${JSON.stringify(e.entity)}`);
         continue;
       }
+      cursor.set(e.entity, start + e.entity.length);
       spans.push({ type: e.type, value: e.entity, start, end: start + e.entity.length });
     }
     return spans.sort((a, b) => a.start - b.start);
@@ -72,20 +77,7 @@ const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
 const engines = {};
 
-// 1. openredaction (current dependency)
-{
-  const { LiteOpenRedaction } = await import('file:///home/kripa/Personal/projects/mastra-pii/node_modules/@openredaction/core/dist/lite.mjs');
-  const red = new LiteOpenRedaction({ redactionMode: 'placeholder' });
-  engines.openredaction = {
-    typeMatch: (corpus, t) => t === corpus || ({ INDIAN_AADHAAR: 'AADHAAR', CREDIT_CARD: 'CARD', IP_ADDRESS: 'IP', DATE_OF_BIRTH: 'DOB', DRIVING_LICENSE_US: 'DL', DRIVER_ID: 'DL', PASSPORT_US: 'PASSPORT', US_SSN: 'SSN', EMAIL_ADDRESS: 'EMAIL', PHONE_NUMBER: 'PHONE' })[t] === corpus,
-    async detect(text) {
-      const res = await red.detect(text);
-      return (res.detections || []).map(d => ({ type: d.type, start: Array.isArray(d.position) ? d.position[0] : d.start, end: Array.isArray(d.position) ? d.position[1] : d.end, score: d.confidence ?? 1, text: d.value ?? '' }));
-    },
-  };
-}
-
-// 2. @redactpii/node (no spans — output-only heuristic)
+// 1. @redactpii/node (no spans — output-only heuristic)
 {
   const { Redactor } = await import('@redactpii/node');
   const red = new Redactor({ rules: { CREDIT_CARD: true, EMAIL: true, NAME: true, PHONE: true, SSN: true } });
@@ -93,8 +85,8 @@ const engines = {};
   engines.redactpii.typeMatch = () => false;
 }
 
-// 3. @siddicky/anonymizerts pattern-only
-// 4. @siddicky/anonymizerts + NER (bert-base-NER)
+// 2. @siddicky/anonymizerts pattern-only
+// 3. @siddicky/anonymizerts + NER (bert-base-NER)
 {
   const mod = await import('@siddicky/anonymizerts');
   const anonP = new mod.PresidioAnalyzer({ useNER: false });
@@ -109,7 +101,7 @@ const engines = {};
   };
 }
 
-// 5. prototype: in-house TS recognizer registry (Indian PII patterns)
+// 4. prototype: in-house TS recognizer registry (Indian PII patterns)
 // Verhoeff checksum (Aadhaar uses it) — the Presidio 'validator' concept
 const VERHOEFF_D = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
 const VERHOEFF_P = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
@@ -167,7 +159,7 @@ function verhoeff(num) {
   };
 }
 
-// 6. piiranha ONNX via transformers.js (accuracy ceiling, CC-BY-NC-ND)
+// 5. piiranha ONNX via transformers.js (accuracy ceiling, CC-BY-NC-ND)
 {
   const { pipeline } = await import('@huggingface/transformers');
   const t0 = performance.now();
