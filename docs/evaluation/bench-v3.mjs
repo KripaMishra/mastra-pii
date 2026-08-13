@@ -1,17 +1,36 @@
-// v3 anti-overfitting corpus benchmark (test_2.json). See vault report + benchmark-results.md.
+// v3-style suite benchmark (test_sections shape). See vault report + benchmark-results.md.
+// Usage: node bench-v3.mjs [corpus.json]  (default: ../../test_2.json)
 
 // Definitive benchmark: candidate TS PII engines vs the Indian PII test corpus
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 
-const test2 = JSON.parse(readFileSync('/home/kripa/Personal/projects/mastra-pii/test_2.json', 'utf8'));
-const corpus1 = test2.test_sections.map(s => ({
-  id: s.section_id, category: s.category, input: s.input_transcript,
+const CORPUS_PATH = process.argv[2] ?? '/home/kripa/Personal/projects/mastra-pii/test_2.json';
+const suite = JSON.parse(readFileSync(CORPUS_PATH, 'utf8'));
+const corpus1 = suite.test_sections.map(s => ({
+  id: s.section_id, cat: s.category, input: s.input_transcript,
   expected: s.expected_redacted_transcript, traps: s.false_positive_traps || [],
+  pii_entities: s.pii_entities,
 }));
 
-// ---------- true span extraction (robust: multi-char anchors) ----------
-function extractTrueSpans(input, expected) {
+// ---------- true span extraction ----------
+// Preferred: explicit pii_entities[].entity anchors (exact, length-independent).
+// Fallback: marker-position walk (works when marker length == replaced value length,
+// e.g. the v3 corpus where <REDACTED_GSTIN> replaces a 15-char value 1:1).
+function extractTrueSpans(section) {
+  const { input_transcript: input, expected_redacted_transcript: expected, pii_entities: entities } = section;
+  if (entities && entities.length > 0) {
+    const spans = [];
+    for (const e of entities) {
+      const start = input.indexOf(e.entity);
+      if (start === -1) {
+        console.warn(`  !! entity not found in input: ${e.type} ${JSON.stringify(e.entity)}`);
+        continue;
+      }
+      spans.push({ type: e.type, value: e.entity, start, end: start + e.entity.length });
+    }
+    return spans.sort((a, b) => a.start - b.start);
+  }
   const spans = [];
   const markerRe = /<REDACTED_([A-Z_]+)>/g;
   const markers = [];
@@ -186,13 +205,13 @@ function verhoeff(num) {
 }
 
 // ---------- evaluation ----------
-const cases = corpus1.map(c => ({ id: c.id, cat: c.category, input: c.input, expected: c.expected, traps: c.traps }));
+const cases = corpus1; // { id, cat, input, expected, traps, pii_entities? }
 const results = {};
 for (const [name, eng] of Object.entries(engines)) {
   const stats = { trueSpans: 0, coveredAny: 0, coveredTyped: 0, fps: 0, ms: 0, perType: {}, exactMatch: 0, n: cases.length, trapHits: [] };
   const t0 = performance.now();
   for (const c of cases) {
-    const spans = extractTrueSpans(c.input, c.expected);
+    const spans = extractTrueSpans(c);
     stats.trueSpans += spans.length;
     if (name === 'redactpii') {
       const { redacted } = await eng.detect(c.input);
@@ -231,7 +250,7 @@ for (const [name, eng] of Object.entries(engines)) {
 
 // ---------- report ----------
 const typeTotals = {};
-for (const c of cases) for (const s of extractTrueSpans(c.input, c.expected)) typeTotals[s.type] = (typeTotals[s.type] ?? 0) + 1;
+for (const c of cases) for (const s of extractTrueSpans(c)) typeTotals[s.type] = (typeTotals[s.type] ?? 0) + 1;
 console.log('cases: ' + cases.length + ' | true spans: ' + Object.values(typeTotals).reduce((a, b) => a + b, 0));
 console.log('per-type true counts:', JSON.stringify(typeTotals));
 console.log();

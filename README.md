@@ -101,7 +101,11 @@ same layer option is accepted by `redactText(text, options?)`.
 ## Guarantees and limitations
 
 - The local adapter is a pure regex/checksum engine (~2 ms, no network).
-  Benchmark: 69.2% typed recall / 2 FP on the Indian chat corpus v1.
+  Benchmark: 69.2% typed recall / 2 FP on the Indian chat corpus v1;
+  38.5% typed recall / 0 FP on the resume corpus
+  (`docs/evaluation/resume_pii_testsuite.json`) — emails/PANs/passports are
+  caught, names/addresses are NER-only, and international identifiers
+  (SSN, SIN, NI, TFN, NRIC, Steuer-ID) have no recognizers yet.
 - The Presidio adapter adds spaCy NER (6/6 names on the corpus). Benchmark:
   84.6% typed recall / 2 FP / p95 16 ms on v1. Obfuscated formats (leet speak,
   spaced PANs, `[at]` emails) defeat every engine — a canonicalization pass is
@@ -188,8 +192,11 @@ curl -s -X POST http://localhost:3001/api/redact \
 ```
 
 The full corpus benchmark messages live in `docs/evaluation/indian_pii_testsuite.json`
-(v1) and `test_2.json` (v3) — feed any of those inputs to sample 1 for a spot
-check against the published numbers.
+(v1), `test_2.json` (v3), and `docs/evaluation/resume_pii_testsuite.json`
+(resume) — feed any of those inputs to sample 1 for a spot check against the
+published numbers. Run the harnesses with
+`node docs/evaluation/bench-v3.mjs [corpus.json]` (default `test_2.json`) or
+`node docs/evaluation/bench-presidio.mjs v1|v3|resume`.
 
 ## Development
 
