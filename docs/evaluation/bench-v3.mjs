@@ -3,9 +3,10 @@
 
 // Definitive benchmark: candidate TS PII engines vs the Indian PII test corpus
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
-const CORPUS_PATH = process.argv[2] ?? '/home/kripa/Personal/projects/mastra-pii/test_2.json';
+const CORPUS_PATH = process.argv[2] ?? fileURLToPath(new URL('../../test_2.json', import.meta.url));
 const suite = JSON.parse(readFileSync(CORPUS_PATH, 'utf8'));
 const corpus1 = suite.test_sections.map(s => ({
   id: s.section_id, cat: s.category, input: s.input_transcript,
@@ -18,7 +19,7 @@ const corpus1 = suite.test_sections.map(s => ({
 // Fallback: marker-position walk (works when marker length == replaced value length,
 // e.g. the v3 corpus where <REDACTED_GSTIN> replaces a 15-char value 1:1).
 function extractTrueSpans(section) {
-  const { input_transcript: input, expected_redacted_transcript: expected, pii_entities: entities } = section;
+  const { input, expected, pii_entities: entities } = section;
   if (entities && entities.length > 0) {
     const spans = [];
     for (const e of entities) {
