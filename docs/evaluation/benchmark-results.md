@@ -151,8 +151,11 @@ SECRET 2/2, PASSPORT 1/1, DOB 1/1, EMAIL 3/3, IP 1/1.
 > note at the end). Re-scored with the corrected entity-anchored extraction, the
 > local engine drops to **0.0% typed recall / 24.1% coverage / 3 FP** — the old
 > 10.3% was inflated by truncated spans accidentally overlapping detections.
-> Presidio numbers below are unchanged in method but would shift similarly;
-> re-run with `node docs/evaluation/bench-presidio.mjs v3` to refresh.
+> Presidio v3 rows below were refreshed on **2026-08-14** via the corrected
+> entity-anchored extraction (`node docs/evaluation/bench-presidio.mjs v3`).
+> The earlier guess that they "would shift similarly" was wrong — the re-run
+> came back unchanged: presidio_default at **6.9% / 6.9% / 0 FP** (0 traps),
+> presidio_indian at **13.8% / 27.6% / 3 FP** (5 traps).
 
 | Engine | Typed recall | Coverage | FP | Traps hit |
 |---|---|---|---|---|
