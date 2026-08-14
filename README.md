@@ -6,6 +6,7 @@ one interface: a **remote Presidio adapter** (deployed container, spaCy NER +
 configurable Indian ad_hoc recognizers) and a **local deterministic adapter**
 (zero-dependency regex/checksum engine) that doubles as the outage fallback.
 Node `>=22.13.0`, Mastra `>=1.57.0 <2`.
+Tested against `@mastra/core` 1.57.0 and latest 1.x in CI.
 
 ## Setup
 
