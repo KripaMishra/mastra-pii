@@ -967,6 +967,80 @@ describe('adapter architecture (Presidio remote + local fallback)', () => {
     }
   });
 
+  it('replaces the Presidio defaults with user recognizers', async () => {
+    const text = 'employee EMP-1234';
+    const recognizers = [{
+      name: 'employee-id-recognizer',
+      supported_language: 'en',
+      supported_entity: 'SECRET',
+      patterns: [{ name: 'employee-id', regex: '\\bEMP-\\d{4}\\b', score: 0.7 }],
+      context: ['employee'],
+    }];
+    let seenBody = '';
+    const { url, close } = await withServer((_req, res, body) => {
+      seenBody = body;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify([{ entity_type: 'SECRET', start: 9, end: 17, score: 0.7 }]));
+    });
+    try {
+      const spans = await createPresidioAdapter({ url, timeoutMs: 2000, recognizers }).analyze(text);
+      const payload = JSON.parse(seenBody);
+      expect(payload.ad_hoc_recognizers).toEqual(recognizers);
+      expect(payload.ad_hoc_recognizers).not.toEqual(INDIAN_DEFAULTS);
+      expect(spans).toEqual([{ type: 'SECRET', start: 9, end: 17, score: 0.7 }]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('runs configured local patterns in local and Presidio modes', async () => {
+    const patterns = [{ name: 'synthetic-key', regex: /CANARY-[0-9]+/g, entity: 'token' }] as const;
+    const local = await createLayeredPii({ patterns }).redactText('value CANARY-12345');
+    const { url, close } = await withServer((_req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end('[]');
+    });
+    try {
+      const remote = await createLayeredPii({ patterns, presidio: { url, timeoutMs: 2000 } })
+        .redactText('value CANARY-12345');
+      expect(local).toContain('[TOKEN_1]');
+      expect(containsSensitive(local)).toBe(false);
+      expect(remote).toContain('[TOKEN_1]');
+      expect(containsSensitive(remote)).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  it('drops detections from recognizers outside the Presidio entity allowlist', async () => {
+    const text = 'employee EMP-1234';
+    const recognizer = {
+      name: 'employee-id-recognizer',
+      supported_language: 'en',
+      supported_entity: 'EMPLOYEE_ID',
+      patterns: [{ name: 'employee-id', regex: '\\bEMP-\\d{4}\\b', score: 0.7 }],
+    };
+    let seenBody = '';
+    const { url, close } = await withServer((_req, res, body) => {
+      seenBody = body;
+      const payload = JSON.parse(body);
+      const detected = payload.entities.includes(recognizer.supported_entity)
+        ? [{ entity_type: recognizer.supported_entity, start: 9, end: 17, score: 0.7 }]
+        : [];
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(detected));
+    });
+    try {
+      const spans = await createPresidioAdapter({ url, timeoutMs: 2000, recognizers: [recognizer] }).analyze(text);
+      const payload = JSON.parse(seenBody);
+      expect(payload.ad_hoc_recognizers).toEqual([recognizer]);
+      expect(payload.entities).not.toContain(recognizer.supported_entity);
+      expect(spans).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
   it('type-aware dedupe: UPI beats the higher-scoring PHONE_NUMBER on overlap', async () => {
     const text = '9999999999@ybl';
     const { url, close } = await withServer((_req, res) => {
