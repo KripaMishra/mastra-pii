@@ -38,6 +38,23 @@ const processorArgs = (prompt: unknown[], stepNumber: number) => ({
 });
 
 describe('Alpha 1 deterministic PII redaction', () => {
+  it('redacts bounded documents while preserving structure', async () => {
+    const pii = createLayeredPii();
+    const output = await pii.redactDocument({
+      email: 'alpha@example.test',
+      nested: { phone: '+91 98765 43210', aadhaar: '7316 7253 5875', verified: true, attempts: 2 },
+    });
+    expect(output).toEqual({
+      email: '[EMAIL_1]',
+      nested: { phone: '[PHONE_1]', aadhaar: '[AADHAAR_1]', verified: true, attempts: 2 },
+    });
+
+    let tooDeep: unknown = 'safe';
+    for (let depth = 0; depth < 33; depth += 1) tooDeep = { value: tooDeep };
+    expect(() => pii.redactDocument(tooDeep)).toThrow('payload limit exceeded');
+    expect(() => pii.redactDocument(Array(10_000).fill(null))).toThrow('payload limit exceeded');
+  });
+
   it('redacts structured identifiers with stable taxonomy placeholders', async () => {
     const pii = createLayeredPii();
     const output = await pii.redactText(`email ${'alpha'}@${'example.test'} and Aadhaar 7316 7253 5875`);
