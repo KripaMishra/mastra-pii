@@ -985,6 +985,43 @@ describe('adapter architecture (Presidio remote + local fallback)', () => {
     }
   });
 
+  it('does not retry 4xx responses', async () => {
+    let calls = 0;
+    const { url, close } = await withServer((_req, res) => {
+      calls += 1;
+      res.statusCode = 400;
+      res.end();
+    });
+    try {
+      const adapter = createPresidioAdapter({ url, timeoutMs: 2000 });
+      await expect(adapter.analyze('safe')).rejects.toThrow('presidio analyze 400');
+      expect(calls).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it('retries a 5xx response once and redacts after recovery', async () => {
+    let calls = 0;
+    const { url, close } = await withServer((_req, res) => {
+      calls += 1;
+      if (calls === 1) {
+        res.statusCode = 500;
+        res.end();
+        return;
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify([{ entity_type: 'CUSTOM', start: 0, end: 8, score: 0.9 }]));
+    });
+    try {
+      const pii = createLayeredPii({ presidio: { url, timeoutMs: 2000 }, fallback: 'strict' });
+      expect(await pii.redactText('CANARY-1')).toBe('[CUSTOM_1]');
+      expect(calls).toBe(2);
+    } finally {
+      await close();
+    }
+  });
+
   it('outage: local fallback by default, strict fails closed', async () => {
     const dead = { presidio: { url: 'http://127.0.0.1:1', timeoutMs: 300, retries: 0 } };
     const fallback = createLayeredPii({ ...dead, fallback: 'local' });

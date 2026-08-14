@@ -213,6 +213,7 @@ export function createPresidioAdapter(config: PresidioAdapterConfig): Analyzer {
       for (let attempt = 0; attempt <= retries; attempt += 1) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
+        let retryable = true;
         try {
           const response = await fetch(`${url}/analyze`, {
             method: 'POST',
@@ -220,6 +221,7 @@ export function createPresidioAdapter(config: PresidioAdapterConfig): Analyzer {
             body: JSON.stringify(body),
             signal: controller.signal,
           });
+          retryable = response.status >= 500;
           if (!response.ok) throw new Error(`presidio analyze ${response.status}`);
           const payload = (await response.json()) as ReadonlyArray<{ entity_type?: unknown; start?: unknown; end?: unknown; score?: unknown }>;
           const spans: AnalyzerSpan[] = [];
@@ -232,11 +234,12 @@ export function createPresidioAdapter(config: PresidioAdapterConfig): Analyzer {
           }
           return dedupe(postFilter(spans, text, validate));
         } catch (error) {
+          if (!retryable) throw error;
           lastError = error;
-          if (attempt < retries) continue;
         } finally {
           clearTimeout(timer);
         }
+        if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 251)));
       }
       throw lastError instanceof Error ? lastError : new Error('presidio analyze failed');
     },
