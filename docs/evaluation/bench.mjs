@@ -1,6 +1,9 @@
 // Reproducible PII engine benchmark (see benchmark-results.md).
-// Needs: @redactpii/node, @siddicky/anonymizerts, @huggingface/transformers
-// (Piiranha downloads ~317MB once). See README "Benchmarking".
+// Benchmark-only deps (not package deps), from the repo root:
+//   npm install --no-save @redactpii/node @siddicky/anonymizerts @huggingface/transformers
+// (Piiranha downloads ~317MB once; for offline use set env.allowRemoteModels=false
+// + a local model dir). Engines load by bare specifier, so they must be
+// resolvable from docs/evaluation/.
 
 // Definitive benchmark: candidate TS PII engines vs the Indian PII test corpus
 import { readFileSync } from 'node:fs';

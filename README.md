@@ -1,6 +1,7 @@
 # @kripamishra/mastra-pii
 
-Adapter-based PII redaction for Mastra agent loops. Ships two analyzers behind
+Adapter-based PII redaction for Mastra agent loops — the package owns the
+integration; the deployment owns the intelligence. Ships two analyzers behind
 one interface: a **remote Presidio adapter** (deployed container, spaCy NER +
 configurable Indian ad_hoc recognizers) and a **local deterministic adapter**
 (zero-dependency regex/checksum engine) that doubles as the outage fallback.
@@ -101,15 +102,15 @@ same layer option is accepted by `redactText(text, options?)`.
 ## Guarantees and limitations
 
 - The local adapter is a pure regex/checksum engine (~2 ms, no network).
-  Benchmark: 69.2% typed recall / 2 FP on the Indian chat corpus v1;
-  38.5% typed recall / 0 FP on the resume corpus
-  (`docs/evaluation/resume_pii_testsuite.json`) — emails/PANs/passports are
-  caught, names/addresses are NER-only, and international identifiers
-  (SSN, SIN, NI, TFN, NRIC, Steuer-ID) have no recognizers yet.
-- The Presidio adapter adds spaCy NER (6/6 names on the corpus). Benchmark:
-  84.6% typed recall / 2 FP / p95 16 ms on v1. Obfuscated formats (leet speak,
+  Emails/PANs/passports are caught; names/addresses are NER-only, and
+  international identifiers (SSN, SIN, NI, TFN, NRIC, Steuer-ID) have no
+  recognizers yet.
+- The Presidio adapter adds spaCy NER. Obfuscated formats (leet speak,
   spaced PANs, `[at]` emails) defeat every engine — a canonicalization pass is
   planned work.
+- Accuracy is a property of the deployed analyzer, not of the adapter.
+  Internal engine benchmarks live in `docs/evaluation/benchmark-results.md`
+  and are not headline numbers for this package.
 - Fail-closed by default: analyzer outage degrades to the local engine, or to
   `[REDACTION_FAILED]` under `fallback: 'strict'`. Public output contains only
   redacted text or the generic marker; detector values and raw matches stay
@@ -193,30 +194,17 @@ curl -s -X POST http://localhost:3001/api/redact \
 
 The full corpus benchmark messages live in `docs/evaluation/indian_pii_testsuite.json`
 (v1), `test_2.json` (v3), and `docs/evaluation/resume_pii_testsuite.json`
-(resume) — feed any of those inputs to sample 1 for a spot check against the
-published numbers. Run the harnesses with
+(resume) — feed any of those inputs to sample 1 for a spot check against
+`docs/evaluation/benchmark-results.md`. Run the harnesses with
 `node docs/evaluation/bench-v3.mjs [corpus.json]` (default `test_2.json`) or
 `node docs/evaluation/bench-presidio.mjs v1|v3|resume`.
 
 ## Benchmarking
 
-The benchmark harnesses compare the package's local engine against three
-external PII engines. Those engines are **not** package dependencies — they are
-benchmark-only and must be installed before the harnesses will run:
-
-```sh
-# from the repository root:
-npm install --no-save \
-  @redactpii/node \
-  @siddicky/anonymizerts \
-  @huggingface/transformers
-```
-
-`@huggingface/transformers` downloads the Piiranha ONNX model (~317 MB) on
-first run; set `env.allowRemoteModels = false` + a local model dir for offline
-use. The engines are imported by bare specifier, so they must be resolvable
-from `docs/evaluation/` (a plain `npm install` in the repo root satisfies
-this).
+Internal engine-evaluation harnesses, corpora, and results live in
+`docs/evaluation/` (see `benchmark-results.md` for reproduction steps and
+dependency notes). The adapter's contract is compatibility, config surface,
+and behavioral guarantees; accuracy is the deployed analyzer's property.
 
 ```sh
 node docs/evaluation/bench-v3.mjs docs/evaluation/resume_pii_testsuite.json

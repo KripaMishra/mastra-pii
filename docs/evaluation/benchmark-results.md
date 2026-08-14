@@ -109,7 +109,8 @@ Config decisions surfaced:
 ```sh
 # corpus: docs/evaluation/indian_pii_testsuite.json
 # harness: docs/evaluation/bench.mjs  (needs @redactpii/node, @siddicky/anonymizerts,
-#   @huggingface/transformers — see README "Benchmarking")
+#   @huggingface/transformers — benchmark-only, from the repo root:
+#   npm install --no-save @redactpii/node @siddicky/anonymizerts @huggingface/transformers)
 # other corpora: node docs/evaluation/bench-v3.mjs [corpus.json] (default test_2.json);
 #   node docs/evaluation/bench-presidio.mjs v1|v3|resume
 node docs/evaluation/bench.mjs
