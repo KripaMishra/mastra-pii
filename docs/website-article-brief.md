@@ -84,8 +84,9 @@ integration."*
    entity allowlist, custom patterns, anonymize formats, entity filtering.
 5. Guarantees (fail-closed, worker timeouts, cache) — one paragraph, not a
    section.
-6. Roadmap: obfuscation canonicalization, international recognizers. Model
-   layer explicitly **out of scope** — deployment-side, future project.
+6. Roadmap: recognizer pass-through (the documented way to add detection —
+   user recognizers flow to both engines; no new built-in recognizers ship).
+   Model layer explicitly **out of scope** — deployment-side, future project.
 
 ## Writing rules
 
@@ -117,10 +118,11 @@ Pointers to facts the article can lean on, verified against the repo on
 - **Benchmark harnesses** (`docs/evaluation/`): internal only. The README no
   longer headlines engine accuracy numbers (aligned with this positioning on
   2026-08-14); do not quote numbers from `benchmark-results.md`.
-- **Roadmap anchors**: obfuscation canonicalization (leet speak / spaced
-  chars / `[at]` emails defeat every engine) and international recognizers
-  (SSN/SIN/NI/TFN/NRIC/Steuer-ID missing) — both stated as limitations in
-  `README.md` "Guarantees and limitations".
+- **Roadmap anchor**: recognizer pass-through — user recognizers (Presidio
+  shape) and custom patterns (local shape) are the documented extension
+  paths (`README.md` "Entities" section, tracked in issue #25). Built-in
+  recognizer expansion and canonicalization are closed as out of scope
+  (2026-08-14).
 
 ### Pre-flight checklist
 

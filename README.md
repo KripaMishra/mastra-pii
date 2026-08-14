@@ -104,10 +104,9 @@ same layer option is accepted by `redactText(text, options?)`.
 - The local adapter is a pure regex/checksum engine (~2 ms, no network).
   Emails/PANs/passports are caught; names/addresses are NER-only, and
   international identifiers (SSN, SIN, NI, TFN, NRIC, Steuer-ID) have no
-  recognizers yet.
+  built-in recognizers — pass your own through the config surfaces below.
 - The Presidio adapter adds spaCy NER. Obfuscated formats (leet speak,
-  spaced PANs, `[at]` emails) defeat every engine — a canonicalization pass is
-  planned work.
+  spaced PANs, `[at]` emails) defeat every engine.
 - Accuracy is a property of the deployed analyzer, not of the adapter.
   Internal engine benchmarks live in `docs/evaluation/benchmark-results.md`
   and are not headline numbers for this package.
