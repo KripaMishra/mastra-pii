@@ -67,6 +67,7 @@ export interface LayeredPii {
   readonly id: string;
   readonly warmup: () => Promise<void>;
   readonly redactText: (text: string, options?: RedactTextOptions) => Promise<string>;
+  redactDocument(value: unknown): Promise<unknown>;
   readonly processor: PiiProcessor;
 }
 
@@ -846,6 +847,8 @@ export function createLayeredPii(config: LayeredPiiConfig = {}): LayeredPii {
     return (await redactMany([text]))[0] ?? FAILURE_PLACEHOLDER;
   };
 
+  const redactDocument = (value: unknown): Promise<unknown> => redactPayload(value, redactMany);
+
   let warmupPromise: Promise<void> | undefined;
   const warmup = (): Promise<void> => (warmupPromise ??= analyzer.warmup?.() ?? Promise.resolve());
 
@@ -876,5 +879,5 @@ export function createLayeredPii(config: LayeredPiiConfig = {}): LayeredPii {
     processOutputResult,
   };
 
-  return { id, warmup, redactText, processor };
+  return { id, warmup, redactText, redactDocument, processor };
 }

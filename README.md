@@ -44,6 +44,7 @@ const pii = createLayeredPii({
 await pii.warmup(); // health-checks the remote service (no-op for local)
 const safe = await pii.redactText('Aadhaar 7316 7253 5875, PAN ABCDE1234F');
 // "Aadhaar [AADHAAR_1], PAN [PAN_1]"
+const safeDocument = await pii.redactDocument({ email: 'alpha@example.test' });
 
 const agent = new Agent({
   inputProcessors: [pii.processor],   // user input + every prompt
@@ -164,8 +165,9 @@ same layer option is accepted by `redactText(text, options?)`.
   media are replaced by `[REDACTION_FAILED]` at part granularity, and the rest
   of the containing message survives.
 - No Transformers.js NER, Mastra `PIIDetector` model layer, reversible
-  restoration, audit logs, telemetry, or structured document redaction.
-  `ner` and `model` layers are rejected explicitly.
+  restoration, audit logs, or telemetry. `redactDocument` redacts bounded plain
+  objects and arrays; it throws on class instances, sparse arrays, and symbol
+  keys. `ner` and `model` layers are rejected explicitly.
 - Custom-regex execution is time-bounded with worker termination: 250 ms base
   plus 1 ms per KB of batched input. Regexes should still be reviewed by
   callers; no detector can guarantee detection of every arbitrary identifier
