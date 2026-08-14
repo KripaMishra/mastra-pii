@@ -1,17 +1,42 @@
-// v3 anti-overfitting corpus benchmark (test_2.json). See vault report + benchmark-results.md.
+// v3-style suite benchmark (test_sections shape). See vault report + benchmark-results.md.
+// Usage: node bench-v3.mjs [corpus.json]  (default: ../../test_2.json)
 
 // Definitive benchmark: candidate TS PII engines vs the Indian PII test corpus
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
-const test2 = JSON.parse(readFileSync('/home/kripa/Personal/projects/mastra-pii/test_2.json', 'utf8'));
-const corpus1 = test2.test_sections.map(s => ({
-  id: s.section_id, category: s.category, input: s.input_transcript,
+const CORPUS_PATH = process.argv[2] ?? fileURLToPath(new URL('../../test_2.json', import.meta.url));
+const suite = JSON.parse(readFileSync(CORPUS_PATH, 'utf8'));
+const corpus = suite.test_sections.map(s => ({
+  id: s.section_id, cat: s.category, input: s.input_transcript,
   expected: s.expected_redacted_transcript, traps: s.false_positive_traps || [],
+  pii_entities: s.pii_entities,
 }));
 
-// ---------- true span extraction (robust: multi-char anchors) ----------
-function extractTrueSpans(input, expected) {
+// ---------- true span extraction ----------
+// Preferred: explicit pii_entities[].entity anchors (exact, length-independent).
+// Fallback: marker-position walk (works when marker length == replaced value length,
+// e.g. the v3 corpus where <REDACTED_GSTIN> replaces a 15-char value 1:1).
+function extractTrueSpans(section) {
+  const { input, expected, pii_entities: entities } = section;
+  if (entities && entities.length > 0) {
+    const spans = [];
+    // Per-value cursor so repeated identical values resolve to successive
+    // occurrences instead of every match collapsing onto the first.
+    const cursor = new Map();
+    for (const e of entities) {
+      const from = cursor.get(e.entity) ?? 0;
+      const start = input.indexOf(e.entity, from);
+      if (start === -1) {
+        console.warn(`  !! entity not found in input: ${e.type} ${JSON.stringify(e.entity)}`);
+        continue;
+      }
+      cursor.set(e.entity, start + e.entity.length);
+      spans.push({ type: e.type, value: e.entity, start, end: start + e.entity.length });
+    }
+    return spans.sort((a, b) => a.start - b.start);
+  }
   const spans = [];
   const markerRe = /<REDACTED_([A-Z_]+)>/g;
   const markers = [];
@@ -52,20 +77,7 @@ const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
 const engines = {};
 
-// 1. openredaction (current dependency)
-{
-  const { LiteOpenRedaction } = await import('file:///home/kripa/Personal/projects/mastra-pii/node_modules/@openredaction/core/dist/lite.mjs');
-  const red = new LiteOpenRedaction({ redactionMode: 'placeholder' });
-  engines.openredaction = {
-    typeMatch: (corpus, t) => t === corpus || ({ INDIAN_AADHAAR: 'AADHAAR', CREDIT_CARD: 'CARD', IP_ADDRESS: 'IP', DATE_OF_BIRTH: 'DOB', DRIVING_LICENSE_US: 'DL', DRIVER_ID: 'DL', PASSPORT_US: 'PASSPORT', US_SSN: 'SSN', EMAIL_ADDRESS: 'EMAIL', PHONE_NUMBER: 'PHONE' })[t] === corpus,
-    async detect(text) {
-      const res = await red.detect(text);
-      return (res.detections || []).map(d => ({ type: d.type, start: Array.isArray(d.position) ? d.position[0] : d.start, end: Array.isArray(d.position) ? d.position[1] : d.end, score: d.confidence ?? 1, text: d.value ?? '' }));
-    },
-  };
-}
-
-// 2. @redactpii/node (no spans — output-only heuristic)
+// 1. @redactpii/node (no spans — output-only heuristic)
 {
   const { Redactor } = await import('@redactpii/node');
   const red = new Redactor({ rules: { CREDIT_CARD: true, EMAIL: true, NAME: true, PHONE: true, SSN: true } });
@@ -73,8 +85,8 @@ const engines = {};
   engines.redactpii.typeMatch = () => false;
 }
 
-// 3. @siddicky/anonymizerts pattern-only
-// 4. @siddicky/anonymizerts + NER (bert-base-NER)
+// 2. @siddicky/anonymizerts pattern-only
+// 3. @siddicky/anonymizerts + NER (bert-base-NER)
 {
   const mod = await import('@siddicky/anonymizerts');
   const anonP = new mod.PresidioAnalyzer({ useNER: false });
@@ -89,7 +101,7 @@ const engines = {};
   };
 }
 
-// 5. prototype: in-house TS recognizer registry (Indian PII patterns)
+// 4. prototype: in-house TS recognizer registry (Indian PII patterns)
 // Verhoeff checksum (Aadhaar uses it) — the Presidio 'validator' concept
 const VERHOEFF_D = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
 const VERHOEFF_P = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
@@ -147,7 +159,7 @@ function verhoeff(num) {
   };
 }
 
-// 6. piiranha ONNX via transformers.js (accuracy ceiling, CC-BY-NC-ND)
+// 5. piiranha ONNX via transformers.js (accuracy ceiling, CC-BY-NC-ND)
 {
   const { pipeline } = await import('@huggingface/transformers');
   const t0 = performance.now();
@@ -186,13 +198,12 @@ function verhoeff(num) {
 }
 
 // ---------- evaluation ----------
-const cases = corpus1.map(c => ({ id: c.id, cat: c.category, input: c.input, expected: c.expected, traps: c.traps }));
 const results = {};
 for (const [name, eng] of Object.entries(engines)) {
-  const stats = { trueSpans: 0, coveredAny: 0, coveredTyped: 0, fps: 0, ms: 0, perType: {}, exactMatch: 0, n: cases.length, trapHits: [] };
+  const stats = { trueSpans: 0, coveredAny: 0, coveredTyped: 0, fps: 0, ms: 0, perType: {}, exactMatch: 0, n: corpus.length, trapHits: [] };
   const t0 = performance.now();
-  for (const c of cases) {
-    const spans = extractTrueSpans(c.input, c.expected);
+  for (const c of corpus) {
+    const spans = extractTrueSpans(c);
     stats.trueSpans += spans.length;
     if (name === 'redactpii') {
       const { redacted } = await eng.detect(c.input);
@@ -231,8 +242,8 @@ for (const [name, eng] of Object.entries(engines)) {
 
 // ---------- report ----------
 const typeTotals = {};
-for (const c of cases) for (const s of extractTrueSpans(c.input, c.expected)) typeTotals[s.type] = (typeTotals[s.type] ?? 0) + 1;
-console.log('cases: ' + cases.length + ' | true spans: ' + Object.values(typeTotals).reduce((a, b) => a + b, 0));
+for (const c of corpus) for (const s of extractTrueSpans(c)) typeTotals[s.type] = (typeTotals[s.type] ?? 0) + 1;
+console.log('cases: ' + corpus.length + ' | true spans: ' + Object.values(typeTotals).reduce((a, b) => a + b, 0));
 console.log('per-type true counts:', JSON.stringify(typeTotals));
 console.log();
 for (const [name, r] of Object.entries(results)) {

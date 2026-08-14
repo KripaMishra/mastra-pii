@@ -11,7 +11,7 @@
   true type (per-engine type map). **Coverage** = any overlap regardless of type.
   **FP** = detections overlapping no true span. **Fully-correct** = all true spans in a
   message covered with correct types.
-- Engines: openredaction lite (current dep), `@redactpii/node` 1.0.17, `@siddicky/anonymizerts` 1.0.3 (patterns; + bert-base-NER), in-house prototype (17 regexes + Verhoeff), Piiranha ONNX q8 via transformers.js (aggregation `none` + sequential offset reconstruction + B/I merging).
+- Engines: `@redactpii/node` 1.0.17, `@siddicky/anonymizerts` 1.0.3 (patterns; + bert-base-NER), in-house prototype (17 regexes + Verhoeff), Piiranha ONNX q8 via transformers.js (aggregation `none` + sequential offset reconstruction + B/I merging). (openredaction lite was dropped from the harness — see note below.)
 - Latency: wall-clock for all 20 cases after model warm-up, single-threaded, Node 26, this machine. Model downloads excluded.
 
 ## Corpus profile
@@ -108,8 +108,11 @@ Config decisions surfaced:
 
 ```sh
 # corpus: docs/evaluation/indian_pii_testsuite.json
-# harness: docs/evaluation/bench.mjs  (imports engines from local node_modules:
-#   openredaction from repo, @redactpii/node + @siddicky/anonymizerts + @huggingface/transformers from a scratch dir)
+# harness: docs/evaluation/bench.mjs  (needs @redactpii/node, @siddicky/anonymizerts,
+#   @huggingface/transformers — benchmark-only, from the repo root:
+#   npm install --no-save @redactpii/node @siddicky/anonymizerts @huggingface/transformers)
+# other corpora: node docs/evaluation/bench-v3.mjs [corpus.json] (default test_2.json);
+#   node docs/evaluation/bench-presidio.mjs v1|v3|resume
 node docs/evaluation/bench.mjs
 ```
 
@@ -122,7 +125,7 @@ Note: the harness expects `@redactpii/node`, `@siddicky/anonymizerts`, and
 ## Presidio P0 spike (2026-08-11) — dockerized analyzer, both corpora
 
 Setup: `ghcr.io/data-privacy-stack/presidio-analyzer:2.2.362` (Docker, localhost:3000),
-harness `docs/evaluation/bench-presidio.mjs` (`node docs/evaluation/bench-presidio.mjs v1|v3`).
+harness `docs/evaluation/bench-presidio.mjs` (`node docs/evaluation/bench-presidio.mjs v1|v3|resume`).
 Engines: `local` (in-house 17-recognizer engine, unchanged), `presidio_default`
 (spaCy en_core_web_lg + stock recognizers, curated entities allowlist + shape filters),
 `presidio_indian` (default + 17 Indian ad_hoc recognizers, same filters + type-aware
@@ -144,9 +147,21 @@ SECRET 2/2, PASSPORT 1/1, DOB 1/1, EMAIL 3/3, IP 1/1.
 
 ### v3 corpus (29 true spans, 20 traps)
 
+> **Correction (2026-08-13):** the table below was computed with the marker-walk
+> extractor, which truncated 11 of 29 true values on this corpus (see harness
+> note at the end). Re-scored with the corrected entity-anchored extraction, the
+> local engine drops to **0.0% typed recall / 24.1% coverage / 3 FP** — the old
+> 10.3% was inflated by truncated spans accidentally overlapping detections.
+> Presidio v3 rows below were refreshed on **2026-08-14** via the corrected
+> entity-anchored extraction (`node docs/evaluation/bench-presidio.mjs v3`).
+> The earlier guess that they "would shift similarly" was wrong — the re-run
+> came back unchanged: presidio_default at **6.9% / 6.9% / 0 FP** (0 traps),
+> presidio_indian at **13.8% / 27.6% / 3 FP** (5 traps).
+
 | Engine | Typed recall | Coverage | FP | Traps hit |
 |---|---|---|---|---|
-| local | 10.3% | 24.1% | 3 | 5 |
+| local (old walker) | 10.3% | 24.1% | 3 | 5 |
+| local (corrected) | 0.0% | 24.1% | 3 | — |
 | presidio_default | 6.9% | 6.9% | 0 | 0 |
 | presidio_indian | 13.8% | 27.6% | 3 | 5 |
 
@@ -180,3 +195,64 @@ SECRET 2/2, PASSPORT 1/1, DOB 1/1, EMAIL 3/3, IP 1/1.
 
 ≥60% typed recall on v1: **84.6%** ✓ · ≤5 FP: **2** ✓ · p95 <300 ms: **16 ms** ✓.
 Presidio is the primary adapter; the in-house engine stays as the local fallback.
+
+---
+
+## Resume corpus benchmark (2026-08-13) — `docs/evaluation/resume_pii_testsuite.json`
+
+Corpus: 10 synthetic resumes (Indian + international candidates), 65 true spans.
+Harness: `node docs/evaluation/bench-v3.mjs docs/evaluation/resume_pii_testsuite.json`.
+Local engine only (scratch engine deps and the Presidio container were unavailable,
+so the external engines are not re-run on this corpus).
+
+### Results (local in-house engine, 3 ms for the corpus)
+
+| Metric | Value |
+|---|---|
+| Typed recall | **38.5%** (25/65) |
+| Coverage (any overlap) | **40.0%** (26/65) |
+| FP detections | **0** |
+| Fully-correct cases | **0/10** |
+| Trap hits | **0** (all 30 traps clean) |
+
+### Per-type (hits/true)
+
+`NAME 0/10, ADDRESS 0/10, EMAIL 10/10, PHONE 3/10, PAN 4/4, AADHAAR 0/3,
+DOB 7/10, PASSPORT 1/1, SSN 0/1, DL 0/1, NI_NUMBER 0/1, SIN 0/1, TAX_ID 0/1,
+TFN 0/1, NRIC 0/1`.
+
+### Why each miss happens
+
+- **NAME 0/10, ADDRESS 0/10** — NER-only types; the local regex engine has no
+  NER layer. Expected (same as v1: NAME/ADDRESS are the documented gap).
+- **AADHAAR 0/3** — all three are spaced values (`7412 9630 8521`, …) that fail
+  the strict Verhoeff validator. Consistent with v1 findings (lenient mode would
+  catch them; strict is intentional).
+- **PHONE 3/10** — only Indian formats match (`+91-98220-12345`, `+91 98765 43210`,
+  `98110 22334`). All international formats (`+44 7911…`, `+1 604…`, `+49 170…`,
+  `+61 412…`, `+65 9123…`, US `(415) 555-0134`, spaced `98 765 43210`) miss.
+- **DOB 7/10** — the 3 misses are non-standard formats: written-out month
+  (`12 January 1987`), ISO (`1988-11-02`), dotted German (`23.11.1990`).
+- **SSN/DL/NI/SIN/TAX_ID/TFN/NRIC 0/1 each** — no recognizers for these
+  international identifiers. Documented as expected misses in the corpus notes;
+  these are the headroom for future recognizers.
+- **DL cross-type** — RES-003 `D4567891` is caught as PASSPORT (the
+  `[A-Z][1-9]\d{6}` pattern matches it). A deliberate cross-type trap: typed
+  recall counts it as a miss, coverage counts it as a hit.
+- **0 FP / 0 trap hits** — the engine never redacts the trap values (currency,
+  CGPA, metrics, profile URLs, date ranges, employer names, reference/credential
+  IDs). Precision is the engine's strength on this corpus.
+
+### Harness note (fixed 2026-08-13)
+
+The marker-walk true-span extractor in `bench-v3.mjs`/`bench-presidio.mjs` assumed
+marker length == replaced value length (true for v1/v3 corpora). Resume transcripts
+replace whole lines (e.g. a name in the header), breaking the walk. Both harnesses
+now prefer the explicit `pii_entities[].entity` anchors when present, falling back
+to the walker otherwise. Without this fix the resume corpus could not be scored
+correctly.
+
+The same flaw silently truncated 11/29 true values in the v3 corpus (e.g.
+`kripa.shankar(at)techcorp.in` → `kripa`), so the v3 table above is now annotated
+with the corrected local-engine number; the Presidio v3 rows should be re-run to
+refresh.

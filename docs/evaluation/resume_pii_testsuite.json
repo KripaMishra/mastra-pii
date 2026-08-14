@@ -1,0 +1,565 @@
+{
+  "test_suite_metadata": {
+    "title": "Resume PII Redaction Test Suite - Indian & International Candidates",
+    "version": "1.0",
+    "description": "10 synthetic resume samples covering Indian and international candidate PII (Aadhaar, PAN, Passport, SSN, SIN, NI, TFN, NRIC, Steuer-ID, driving licence, addresses, DOB, phones, emails) plus false-positive traps (profile URLs, CGPA, currency, credential IDs, employment/education date ranges).",
+    "target_audience": "HR / recruiting pipelines ingesting resumes (ATS, screening agents)"
+  },
+  "test_sections": [
+    {
+      "section_id": "RES-001",
+      "title": "Indian Senior Software Engineer",
+      "category": "Indian Resume - Aadhaar, PAN, Address",
+      "input_transcript": "ARJUN MEHTA\nSenior Software Engineer\narjun.mehta@gmail.com | +91-98220-12345 | Bengaluru, Karnataka 560001\nLinkedIn: linkedin.com/in/arjunmehta | GitHub: github.com/arjunmehta\n\nSUMMARY\nFull-stack engineer with 9 years of experience in fintech platforms at Paytm, Razorpay and CRED.\n\nEXPERIENCE\nRazorpay — Senior Software Engineer (2021–Present)\n- Led the payments reconciliation pipeline processing ₹2,40,00,000 monthly.\n\nEDUCATION\nB.Tech in Computer Science, IIT Delhi (2012–2016), CGPA 8.7/10\n\nIDENTITY\nPAN: ABCPM1234F | Aadhaar: 7412 9630 8521 | DOB: 14/06/1993",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nSenior Software Engineer\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nLinkedIn: linkedin.com/in/arjunmehta | GitHub: github.com/arjunmehta\n\nSUMMARY\nFull-stack engineer with 9 years of experience in fintech platforms at Paytm, Razorpay and CRED.\n\nEXPERIENCE\nRazorpay — Senior Software Engineer (2021–Present)\n- Led the payments reconciliation pipeline processing ₹2,40,00,000 monthly.\n\nEDUCATION\nB.Tech in Computer Science, IIT Delhi (2012–2016), CGPA 8.7/10\n\nIDENTITY\nPAN: <REDACTED_PAN> | Aadhaar: <REDACTED_AADHAAR> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "ARJUN MEHTA",
+          "type": "NAME",
+          "note": "Candidate full name in header"
+        },
+        {
+          "entity": "arjun.mehta@gmail.com",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "+91-98220-12345",
+          "type": "PHONE",
+          "note": "Indian mobile with +91 and 5-5 dash format"
+        },
+        {
+          "entity": "Bengaluru, Karnataka 560001",
+          "type": "ADDRESS",
+          "note": "City, state and PIN — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "ABCPM1234F",
+          "type": "PAN",
+          "note": "10-char PAN"
+        },
+        {
+          "entity": "7412 9630 8521",
+          "type": "AADHAAR",
+          "note": "12-digit spaced Aadhaar"
+        },
+        {
+          "entity": "14/06/1993",
+          "type": "DOB",
+          "note": "Date of birth (dd/mm/yyyy)"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "₹2,40,00,000",
+          "reason": "Indian currency amount in lakhs matching numeric PII lengths"
+        },
+        {
+          "value": "8.7/10",
+          "reason": "CGPA score with slash, looks like a date or ratio"
+        },
+        {
+          "value": "github.com/arjunmehta",
+          "reason": "GitHub handle containing the name, not PII"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-002",
+      "title": "Indian Data Analyst",
+      "category": "Indian Resume - Spaced Phone, Aadhaar, PAN",
+      "input_transcript": "PRIYA SHARMA\nData Analyst\npriya.sharma+careers@gmail.com | 98 765 43210 | Jaipur, Rajasthan 302001\n\nSUMMARY\nData analyst with 4 years of experience at Infosys.\n\nEXPERIENCE\nInfosys — Data Analyst (2021–Present)\n- Built dashboards used by 500+ employees.\n\nEDUCATION\nM.Sc. Statistics, Banaras Hindu University (2017–2019), CGPA 8.2\n\nIDENTITY\nAadhaar: 4521 8763 0912 | PAN: CCWPS1234K | DOB: 21/03/1998\nReference: REF-ID-87F4B2A1",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nData Analyst\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\n\nSUMMARY\nData analyst with 4 years of experience at Infosys.\n\nEXPERIENCE\nInfosys — Data Analyst (2021–Present)\n- Built dashboards used by 500+ employees.\n\nEDUCATION\nM.Sc. Statistics, Banaras Hindu University (2017–2019), CGPA 8.2\n\nIDENTITY\nAadhaar: <REDACTED_AADHAAR> | PAN: <REDACTED_PAN> | DOB: <REDACTED_DOB>\nReference: REF-ID-87F4B2A1",
+      "pii_entities": [
+        {
+          "entity": "PRIYA SHARMA",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "priya.sharma+careers@gmail.com",
+          "type": "EMAIL",
+          "note": "Email with +tag alias"
+        },
+        {
+          "entity": "98 765 43210",
+          "type": "PHONE",
+          "note": "Space-separated mobile digits"
+        },
+        {
+          "entity": "Jaipur, Rajasthan 302001",
+          "type": "ADDRESS",
+          "note": "City, state and PIN — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "4521 8763 0912",
+          "type": "AADHAAR",
+          "note": "12-digit spaced Aadhaar"
+        },
+        {
+          "entity": "CCWPS1234K",
+          "type": "PAN",
+          "note": "10-char PAN"
+        },
+        {
+          "entity": "21/03/1998",
+          "type": "DOB",
+          "note": "Date of birth"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "REF-ID-87F4B2A1",
+          "reason": "Reference ID with hex suffix, not PII"
+        },
+        {
+          "value": "500+",
+          "reason": "User count metric, not PII"
+        },
+        {
+          "value": "8.2",
+          "reason": "CGPA score"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-003",
+      "title": "US Senior Product Manager",
+      "category": "International Resume - US SSN, Driving License",
+      "input_transcript": "JESSICA RODRIGUEZ\nSenior Product Manager\njessica.rodriguez@outlook.com | (415) 555-0134 | San Francisco, CA 94105\nLinkedIn: linkedin.com/in/jessicarodriguez\n\nSUMMARY\nProduct leader with 8 years of experience at Google and Airbnb.\n\nEXPERIENCE\nAirbnb — Senior Product Manager (2019–Present)\n- Grew host satisfaction score 15 points in 2 years.\n\nEDUCATION\nMBA, Stanford Graduate School of Business (2015–2017)\n\nIDENTITY\nSSN: 412-86-3910 | Driver's License: D4567891 | DOB: 03/22/1990",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nSenior Product Manager\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nLinkedIn: linkedin.com/in/jessicarodriguez\n\nSUMMARY\nProduct leader with 8 years of experience at Google and Airbnb.\n\nEXPERIENCE\nAirbnb — Senior Product Manager (2019–Present)\n- Grew host satisfaction score 15 points in 2 years.\n\nEDUCATION\nMBA, Stanford Graduate School of Business (2015–2017)\n\nIDENTITY\nSSN: <REDACTED_SSN> | Driver's License: <REDACTED_DL> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "JESSICA RODRIGUEZ",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "jessica.rodriguez@outlook.com",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "(415) 555-0134",
+          "type": "PHONE",
+          "note": "US phone with area code"
+        },
+        {
+          "entity": "San Francisco, CA 94105",
+          "type": "ADDRESS",
+          "note": "City, state and ZIP — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "412-86-3910",
+          "type": "SSN",
+          "note": "US Social Security Number"
+        },
+        {
+          "entity": "D4567891",
+          "type": "DL",
+          "note": "US driver's license number — also matches PASSPORT pattern; a cross-type trap"
+        },
+        {
+          "entity": "03/22/1990",
+          "type": "DOB",
+          "note": "Date of birth (US format mm/dd/yyyy)"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "linkedin.com/in/jessicarodriguez",
+          "reason": "LinkedIn profile URL containing the candidate name"
+        },
+        {
+          "value": "2015–2017",
+          "reason": "Education date range, not DOB"
+        },
+        {
+          "value": "94105",
+          "reason": "ZIP code embedded in the address entity span"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-004",
+      "title": "UK Marketing Director",
+      "category": "International Resume - UK National Insurance Number",
+      "input_transcript": "OLIVIA THOMPSON\nMarketing Director\nolivia.thompson@btinternet.com | +44 7911 123456 | London, SW1A 1AA\nLinkedIn: linkedin.com/in/oliviathompson\n\nSUMMARY\nMarketing director with 12 years of experience across retail and e-commerce.\n\nEXPERIENCE\nTesco — Marketing Director (2018–Present)\n- Led campaigns reaching 20M customers.\n\nEDUCATION\nBA (Hons) Marketing, University of Leeds (2006–2009)\n\nIDENTITY\nNational Insurance Number: AB 12 34 56 C | DOB: 12 January 1987",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nMarketing Director\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nLinkedIn: linkedin.com/in/oliviathompson\n\nSUMMARY\nMarketing director with 12 years of experience across retail and e-commerce.\n\nEXPERIENCE\nTesco — Marketing Director (2018–Present)\n- Led campaigns reaching 20M customers.\n\nEDUCATION\nBA (Hons) Marketing, University of Leeds (2006–2009)\n\nIDENTITY\nNational Insurance Number: <REDACTED_NI_NUMBER> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "OLIVIA THOMPSON",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "olivia.thompson@btinternet.com",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "+44 7911 123456",
+          "type": "PHONE",
+          "note": "UK mobile with +44"
+        },
+        {
+          "entity": "London, SW1A 1AA",
+          "type": "ADDRESS",
+          "note": "City and postcode — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "AB 12 34 56 C",
+          "type": "NI_NUMBER",
+          "note": "UK National Insurance number — no recognizer; expected miss"
+        },
+        {
+          "entity": "12 January 1987",
+          "type": "DOB",
+          "note": "Date of birth with written-out month — no recognizer; expected miss"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "20M",
+          "reason": "Campaign reach metric, not PII"
+        },
+        {
+          "value": "2006–2009",
+          "reason": "Education date range, not DOB"
+        },
+        {
+          "value": "linkedin.com/in/oliviathompson",
+          "reason": "LinkedIn profile URL containing the candidate name"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-005",
+      "title": "Canadian DevOps Engineer",
+      "category": "International Resume - Canada SIN",
+      "input_transcript": "DAVID CHEN\nDevOps Engineer\ndavid.chen@shaw.ca | +1 604 555 0198 | Vancouver, BC V6B 1A1\nGitHub: github.com/davidchen\n\nSUMMARY\nDevOps engineer with 6 years of experience automating cloud infrastructure.\n\nEXPERIENCE\nShopify — DevOps Engineer (2020–Present)\n- Cut deployment time by 60%.\n\nEDUCATION\nB.Sc. Computer Science, University of British Columbia (2012–2016)\n\nIDENTITY\nSIN: 693 456 789 | DOB: 1988-11-02",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nDevOps Engineer\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nGitHub: github.com/davidchen\n\nSUMMARY\nDevOps engineer with 6 years of experience automating cloud infrastructure.\n\nEXPERIENCE\nShopify — DevOps Engineer (2020–Present)\n- Cut deployment time by 60%.\n\nEDUCATION\nB.Sc. Computer Science, University of British Columbia (2012–2016)\n\nIDENTITY\nSIN: <REDACTED_SIN> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "DAVID CHEN",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "david.chen@shaw.ca",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "+1 604 555 0198",
+          "type": "PHONE",
+          "note": "Canadian phone with +1"
+        },
+        {
+          "entity": "Vancouver, BC V6B 1A1",
+          "type": "ADDRESS",
+          "note": "City, province and postal code — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "693 456 789",
+          "type": "SIN",
+          "note": "Canadian Social Insurance Number — no recognizer; expected miss"
+        },
+        {
+          "entity": "1988-11-02",
+          "type": "DOB",
+          "note": "Date of birth (ISO format) — no recognizer; expected miss"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "github.com/davidchen",
+          "reason": "GitHub handle containing the name, not PII"
+        },
+        {
+          "value": "60%",
+          "reason": "Improvement percentage metric"
+        },
+        {
+          "value": "2012–2016",
+          "reason": "Education date range, not DOB"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-006",
+      "title": "German Data Scientist",
+      "category": "International Resume - Germany Steuer-ID",
+      "input_transcript": "LUKAS FISCHER\nData Scientist\nlukas.fischer@t-online.de | +49 170 1234567 | München, 80331\nLinkedIn: linkedin.com/in/lukasfischer\n\nEXPERIENCE\nSiemens — Senior Data Scientist (2019–Present)\n- Built forecasting models serving 40+ internal teams.\n\nEDUCATION\nM.Sc. Informatik, Technische Universität München (2013–2015)\n\nIDENTITY\nSteuer-ID: 47 123 456 789 | DOB: 23.11.1990",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nData Scientist\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nLinkedIn: linkedin.com/in/lukasfischer\n\nEXPERIENCE\nSiemens — Senior Data Scientist (2019–Present)\n- Built forecasting models serving 40+ internal teams.\n\nEDUCATION\nM.Sc. Informatik, Technische Universität München (2013–2015)\n\nIDENTITY\nSteuer-ID: <REDACTED_TAX_ID> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "LUKAS FISCHER",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "lukas.fischer@t-online.de",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "+49 170 1234567",
+          "type": "PHONE",
+          "note": "German mobile with +49"
+        },
+        {
+          "entity": "München, 80331",
+          "type": "ADDRESS",
+          "note": "City and postal code — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "47 123 456 789",
+          "type": "TAX_ID",
+          "note": "German Steuer-ID (11 digits) — no recognizer; expected miss"
+        },
+        {
+          "entity": "23.11.1990",
+          "type": "DOB",
+          "note": "Date of birth (German format dd.mm.yyyy) — no recognizer; expected miss"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "40+",
+          "reason": "Internal team count metric"
+        },
+        {
+          "value": "2013–2015",
+          "reason": "Education date range, not DOB"
+        },
+        {
+          "value": "linkedin.com/in/lukasfischer",
+          "reason": "LinkedIn profile URL containing the candidate name"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-007",
+      "title": "Indian Product Designer (UAE experience)",
+      "category": "Indian Resume - Passport, Aadhaar, PAN",
+      "input_transcript": "KAVYA NAIR\nProduct Designer\nkavya.nair@gmail.com | +91 98765 43210 | Kochi, Kerala 682001\nPortfolio: kavyanair.design\n\nEXPERIENCE\nCareem (Dubai) — Product Designer (2019–2022)\nTCS — UI Designer (2016–2019)\n\nEDUCATION\nB.Des, National Institute of Design (2011–2015)\n\nIDENTITY\nPassport: N1234567 | Aadhaar: 2345 6789 0123 | PAN: BUKPN1234K | DOB: 05/12/1992",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nProduct Designer\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nPortfolio: kavyanair.design\n\nEXPERIENCE\nCareem (Dubai) — Product Designer (2019–2022)\nTCS — UI Designer (2016–2019)\n\nEDUCATION\nB.Des, National Institute of Design (2011–2015)\n\nIDENTITY\nPassport: <REDACTED_PASSPORT> | Aadhaar: <REDACTED_AADHAAR> | PAN: <REDACTED_PAN> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "KAVYA NAIR",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "kavya.nair@gmail.com",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "+91 98765 43210",
+          "type": "PHONE",
+          "note": "Indian mobile with +91, spaced 5-5"
+        },
+        {
+          "entity": "Kochi, Kerala 682001",
+          "type": "ADDRESS",
+          "note": "City, state and PIN — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "N1234567",
+          "type": "PASSPORT",
+          "note": "Indian passport number"
+        },
+        {
+          "entity": "2345 6789 0123",
+          "type": "AADHAAR",
+          "note": "12-digit spaced Aadhaar"
+        },
+        {
+          "entity": "BUKPN1234K",
+          "type": "PAN",
+          "note": "10-char PAN"
+        },
+        {
+          "entity": "05/12/1992",
+          "type": "DOB",
+          "note": "Date of birth"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "kavyanair.design",
+          "reason": "Portfolio domain, not PII"
+        },
+        {
+          "value": "Careem (Dubai)",
+          "reason": "Employer and work location, not candidate address"
+        },
+        {
+          "value": "2016–2019",
+          "reason": "Employment date range, not DOB"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-008",
+      "title": "Australian Financial Analyst",
+      "category": "International Resume - Australia TFN",
+      "input_transcript": "SARAH MITCHELL\nFinancial Analyst\nsarah.mitchell@gmail.com | +61 412 345 678 | Sydney NSW 2000\nLinkedIn: linkedin.com/in/sarahmitchell\n\nEXPERIENCE\nCommonwealth Bank — Financial Analyst (2018–Present)\n- Prepared monthly reporting for AU$4.2B portfolio.\n\nEDUCATION\nB.Com, University of Sydney (2011–2014)\n\nIDENTITY\nTFN: 987 654 321 | DOB: 17/09/1992",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nFinancial Analyst\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nLinkedIn: linkedin.com/in/sarahmitchell\n\nEXPERIENCE\nCommonwealth Bank — Financial Analyst (2018–Present)\n- Prepared monthly reporting for AU$4.2B portfolio.\n\nEDUCATION\nB.Com, University of Sydney (2011–2014)\n\nIDENTITY\nTFN: <REDACTED_TFN> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "SARAH MITCHELL",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "sarah.mitchell@gmail.com",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "+61 412 345 678",
+          "type": "PHONE",
+          "note": "Australian mobile with +61"
+        },
+        {
+          "entity": "Sydney NSW 2000",
+          "type": "ADDRESS",
+          "note": "City, state and postcode — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "987 654 321",
+          "type": "TFN",
+          "note": "Australian Tax File Number — no recognizer; expected miss"
+        },
+        {
+          "entity": "17/09/1992",
+          "type": "DOB",
+          "note": "Date of birth (dd/mm/yyyy)"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "AU$4.2B",
+          "reason": "Portfolio value, not PII"
+        },
+        {
+          "value": "2011–2014",
+          "reason": "Education date range, not DOB"
+        },
+        {
+          "value": "linkedin.com/in/sarahmitchell",
+          "reason": "LinkedIn profile URL containing the candidate name"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-009",
+      "title": "Indian Machine Learning Engineer",
+      "category": "Indian Resume - PAN, Credential ID Trap",
+      "input_transcript": "ROHAN GUPTA\nMachine Learning Engineer\nrohan.gupta@outlook.com | 98110 22334 | Gurugram, Haryana 122001\nGitHub: github.com/rohangpt | Kaggle: kaggle.com/rohangpt\n\nEXPERIENCE\nSwiggy — ML Engineer (2021–Present)\n- Reduced fraud detection latency by 42%.\n\nEDUCATION\nM.Tech, IIT Bombay (2018–2020), CGPA 8.9\n\nCERTIFICATIONS\n- AWS Certified Solutions Architect — credential ID AWS-8F3K9Q2X7D\n- Kaggle Grandmaster, top 0.5%\n\nIDENTITY\nPAN: ABCPG1234R | DOB: 02/08/1996",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nMachine Learning Engineer\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nGitHub: github.com/rohangpt | Kaggle: kaggle.com/rohangpt\n\nEXPERIENCE\nSwiggy — ML Engineer (2021–Present)\n- Reduced fraud detection latency by 42%.\n\nEDUCATION\nM.Tech, IIT Bombay (2018–2020), CGPA 8.9\n\nCERTIFICATIONS\n- AWS Certified Solutions Architect — credential ID AWS-8F3K9Q2X7D\n- Kaggle Grandmaster, top 0.5%\n\nIDENTITY\nPAN: <REDACTED_PAN> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "ROHAN GUPTA",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "rohan.gupta@outlook.com",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "98110 22334",
+          "type": "PHONE",
+          "note": "Indian mobile, spaced 5-5"
+        },
+        {
+          "entity": "Gurugram, Haryana 122001",
+          "type": "ADDRESS",
+          "note": "City, state and PIN — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "ABCPG1234R",
+          "type": "PAN",
+          "note": "10-char PAN"
+        },
+        {
+          "entity": "02/08/1996",
+          "type": "DOB",
+          "note": "Date of birth"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "AWS-8F3K9Q2X7D",
+          "reason": "Credential ID with mixed alphanumerics, not PII"
+        },
+        {
+          "value": "0.5%",
+          "reason": "Percentile rank metric"
+        },
+        {
+          "value": "kaggle.com/rohangpt",
+          "reason": "Kaggle profile handle, not PII"
+        }
+      ]
+    },
+    {
+      "section_id": "RES-010",
+      "title": "Singapore HR Business Partner",
+      "category": "International Resume - Singapore NRIC",
+      "input_transcript": "AMANDA TAN\nHR Business Partner\namanda.tan@gmail.com | +65 9123 4567 | Singapore 238859\nLinkedIn: linkedin.com/in/amandatan\n\nEXPERIENCE\nGrab — HR Business Partner (2020–Present)\nDBS Bank — HR Executive (2016–2020)\n\nEDUCATION\nB.A. Psychology, National University of Singapore (2011–2015)\n\nIDENTITY\nNRIC: S7123456A | DOB: 14/04/1992",
+      "expected_redacted_transcript": "<REDACTED_NAME>\nHR Business Partner\n<REDACTED_EMAIL> | <REDACTED_PHONE> | <REDACTED_ADDRESS>\nLinkedIn: linkedin.com/in/amandatan\n\nEXPERIENCE\nGrab — HR Business Partner (2020–Present)\nDBS Bank — HR Executive (2016–2020)\n\nEDUCATION\nB.A. Psychology, National University of Singapore (2011–2015)\n\nIDENTITY\nNRIC: <REDACTED_NRIC> | DOB: <REDACTED_DOB>",
+      "pii_entities": [
+        {
+          "entity": "AMANDA TAN",
+          "type": "NAME",
+          "note": "Candidate full name"
+        },
+        {
+          "entity": "amanda.tan@gmail.com",
+          "type": "EMAIL",
+          "note": "Personal email"
+        },
+        {
+          "entity": "+65 9123 4567",
+          "type": "PHONE",
+          "note": "Singapore mobile with +65"
+        },
+        {
+          "entity": "Singapore 238859",
+          "type": "ADDRESS",
+          "note": "City and 6-digit postal code — NER-only type, unreachable by pattern engines"
+        },
+        {
+          "entity": "S7123456A",
+          "type": "NRIC",
+          "note": "Singapore NRIC (letter + 7 digits + letter) — no recognizer; expected miss"
+        },
+        {
+          "entity": "14/04/1992",
+          "type": "DOB",
+          "note": "Date of birth (dd/mm/yyyy)"
+        }
+      ],
+      "false_positive_traps": [
+        {
+          "value": "linkedin.com/in/amandatan",
+          "reason": "LinkedIn profile URL containing the candidate name"
+        },
+        {
+          "value": "2011–2015",
+          "reason": "Education date range, not DOB"
+        },
+        {
+          "value": "DBS Bank",
+          "reason": "Employer name, not person or entity"
+        }
+      ]
+    }
+  ]
+}

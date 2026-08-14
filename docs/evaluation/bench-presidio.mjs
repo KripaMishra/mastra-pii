@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // P0 spike harness: Presidio container (default NER) vs Presidio + Indian
-// ad_hoc recognizers vs the in-house local engine, on corpus v1 or v3.
-// Usage: node docs/evaluation/bench-presidio.mjs v1|v3
+// ad_hoc recognizers vs the in-house local engine, on corpus v1, v3, or resume.
+// Usage: node docs/evaluation/bench-presidio.mjs v1|v3|resume
 // Requires: docker compose -f deploy/docker-compose.yml up -d (port 3000)
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
@@ -10,11 +10,14 @@ const CORPUS = process.argv[2] ?? 'v1';
 const BASE = process.env.PRESIDIO_URL ?? 'http://localhost:3000';
 
 // ---------- corpus ----------
+const loadSuite = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
+  .test_sections.map(s => ({ id: s.section_id, cat: s.category, input: s.input_transcript, expected: s.expected_redacted_transcript, traps: s.false_positive_traps || [], pii_entities: s.pii_entities }));
 const cases = CORPUS === 'v3'
-  ? JSON.parse(readFileSync(new URL('../../test_2.json', import.meta.url), 'utf8'))
-      .test_sections.map(s => ({ id: s.section_id, cat: s.category, input: s.input_transcript, expected: s.expected_redacted_transcript, traps: s.false_positive_traps || [] }))
-  : JSON.parse(readFileSync(new URL('./indian_pii_testsuite.json', import.meta.url), 'utf8'))
-      .map(c => ({ id: c.id, cat: c.category, input: c.input, expected: c.expected_output, traps: [] }));(c => ({ id: c.id, cat: c.category, input: c.input, expected: c.expected_output, traps: [] }));
+  ? loadSuite('../../test_2.json')
+  : CORPUS === 'resume'
+    ? loadSuite('./resume_pii_testsuite.json')
+    : JSON.parse(readFileSync(new URL('./indian_pii_testsuite.json', import.meta.url), 'utf8'))
+        .map(c => ({ id: c.id, cat: c.category, input: c.input, expected: c.expected_output, traps: [] }));
 
 // v3 corpus type names -> recognizer names
 const V3_NORM = { UPI_ID: 'UPI', DRIVING_LICENSE: 'DL', SECRET_KEY: 'SECRET', DATE_OF_BIRTH: 'DOB' };
@@ -200,6 +203,25 @@ engines.presidio_indian = {
 
 // ---------- metrics (same as bench.mjs / bench-v3.mjs) ----------
 function extractTrueSpans(c) {
+  // Preferred: explicit pii_entities[].entity anchors (exact, length-independent).
+  if (c.pii_entities && c.pii_entities.length > 0) {
+    const spans = [];
+    // Per-value cursor so repeated identical values resolve to successive
+    // occurrences instead of every match collapsing onto the first.
+    const cursor = new Map();
+    for (const e of c.pii_entities) {
+      const from = cursor.get(e.entity) ?? 0;
+      const start = c.input.indexOf(e.entity, from);
+      if (start === -1) {
+        console.warn(`  !! entity not found in input: ${e.type} ${JSON.stringify(e.entity)}`);
+        continue;
+      }
+      cursor.set(e.entity, start + e.entity.length);
+      spans.push({ type: normType(e.type), value: e.entity, start, end: start + e.entity.length });
+    }
+    return spans.sort((a, b) => a.start - b.start);
+  }
+  // Fallback: marker-position walk (works when marker length == replaced value length).
   const markerRe = /<REDACTED_([A-Z_]+)>/g;
   const markers = [];
   let m;
