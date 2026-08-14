@@ -6,6 +6,7 @@ one interface: a **remote Presidio adapter** (deployed container, spaCy NER +
 configurable Indian ad_hoc recognizers) and a **local deterministic adapter**
 (zero-dependency regex/checksum engine) that doubles as the outage fallback.
 Node `>=22.13.0`, Mastra `>=1.57.0 <2`.
+Tested against `@mastra/core` 1.57.0 and latest 1.x in CI.
 
 ## Setup
 
@@ -44,6 +45,7 @@ const pii = createLayeredPii({
 await pii.warmup(); // health-checks the remote service (no-op for local)
 const safe = await pii.redactText('Aadhaar 7316 7253 5875, PAN ABCDE1234F');
 // "Aadhaar [AADHAAR_1], PAN [PAN_1]"
+const safeDocument = await pii.redactDocument({ email: 'alpha@example.test' });
 
 const agent = new Agent({
   inputProcessors: [pii.processor],   // user input + every prompt
@@ -87,6 +89,51 @@ date-shape filtering on `DATE_TIME`, and score flooring on `PHONE_NUMBER`.
 Pass a custom `recognizers` array in the Presidio config to swap the set for
 another project's domain (EU/US/corporate).
 
+## Adding your own recognizers
+
+The Presidio adapter passes complete `PresidioPatternRecognizer` objects through
+to `ad_hoc_recognizers`:
+
+```ts
+const pii = createLayeredPii({
+  presidio: {
+    url: process.env.PRESIDIO_URL ?? 'http://localhost:3000',
+    recognizers: [{
+      name: 'employee-id-recognizer',
+      supported_language: 'en',
+      supported_entity: 'SECRET',
+      patterns: [{ name: 'employee-id', regex: '\\bEMP-\\d{4}\\b', score: 0.7 }],
+      context: ['employee'],
+    }],
+  },
+});
+```
+
+> [!WARNING]
+> `recognizers` uses **replace-not-merge** semantics. Passing even one custom
+> recognizer silently removes every recognizer in `INDIAN_DEFAULTS` from that
+> request. Include any defaults you still need in your array.
+
+Custom Presidio recognizers must use a `supported_entity` present in the
+adapter's `ENTITY_ALLOWLIST`; detections for other entity types are dropped.
+`INDIAN_DEFAULTS` is the only shipped default set. There are no other built-in
+recognizer packs; extension is pass-through only.
+
+Local `patterns` are a separate deterministic surface and run in both local and
+Presidio modes:
+
+```ts
+const patterns = [
+  { name: 'account-code', regex: /ACCT-[0-9]{6}/g, entity: 'bank-account' as const },
+];
+
+const localPii = createLayeredPii({ patterns });
+const remotePii = createLayeredPii({
+  patterns,
+  presidio: { url: process.env.PRESIDIO_URL ?? 'http://localhost:3000' },
+});
+```
+
 Custom patterns have a `name` (or dependency-compatible `type`), `RegExp`,
 optional `entity`, and optional non-negative `priority`. They are part of the
 `deterministic` layer. Strings are deduplicated per payload and custom patterns
@@ -119,8 +166,9 @@ same layer option is accepted by `redactText(text, options?)`.
   media are replaced by `[REDACTION_FAILED]` at part granularity, and the rest
   of the containing message survives.
 - No Transformers.js NER, Mastra `PIIDetector` model layer, reversible
-  restoration, audit logs, telemetry, or structured document redaction.
-  `ner` and `model` layers are rejected explicitly.
+  restoration, audit logs, or telemetry. `redactDocument` redacts bounded plain
+  objects and arrays; it throws on class instances, sparse arrays, and symbol
+  keys. `ner` and `model` layers are rejected explicitly.
 - Custom-regex execution is time-bounded with worker termination: 250 ms base
   plus 1 ms per KB of batched input. Regexes should still be reviewed by
   callers; no detector can guarantee detection of every arbitrary identifier

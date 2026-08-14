@@ -3,6 +3,8 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '0 3 * * 1'
 
 permissions:
   contents: read
@@ -30,3 +32,51 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:package
+
+  # If latest-1.x breaks, fix compatibility in the same PR or narrow the peer range.
+  compatibility:
+    name: Mastra compatibility (${{ matrix.mastra }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        mastra: ['1.57.0', 'latest-1.x']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Install @mastra/core ${{ matrix.mastra }}
+        env:
+          MASTRA_VERSION: ${{ matrix.mastra }}
+        run: |
+          if [ "$MASTRA_VERSION" = latest-1.x ]; then
+            MASTRA_VERSION='>=1 <2'
+          fi
+          npm install --no-save --package-lock=false "@mastra/core@$MASTRA_VERSION"
+      - run: npm run build
+      - run: npx tsc --noEmit --allowJs --checkJs --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck scripts/compatibility-smoke.mjs
+      - run: node scripts/compatibility-smoke.mjs
+
+  optional-peer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Smoke package without @mastra/core
+        run: |
+          package_dir="$RUNNER_TEMP/mastra-pii-package"
+          consumer_dir="$RUNNER_TEMP/mastra-pii-consumer"
+          mkdir -p "$package_dir" "$consumer_dir"
+          npm pack --ignore-scripts --pack-destination "$package_dir"
+          cd "$consumer_dir"
+          npm init -y
+          npm install --ignore-scripts --no-audit --no-fund --omit=optional "$package_dir"/*.tgz
+          test ! -d node_modules/@mastra/core
+          node --input-type=module -e 'import { createLayeredPii } from "@kripamishra/mastra-pii"; const output = await createLayeredPii().redactText("alice@example.com"); if (output !== "[EMAIL_1]") throw new Error("optional-peer smoke failed");'
